@@ -9,6 +9,7 @@ The foundation library of the [silica](https://github.com/adam3141/silica) works
 | `flint/bench` | A benchmark runner, statistics (p50/p95/p99) and frame-time tracking |
 | `flint/profile` | Tracy profiler zones (`FLINT_PROFILE_ZONE()`), compiled out unless enabled |
 | `flint/meta` | C++26 reflection helpers (enum names, more coming) |
+| `flint/event`, `flint/model` | Signals with scoped connections; `Observable<T>` and `Command` for view models |
 | `flint/platform`, `flint/net`, `flint/text` | System uptime, thread names, terminal detection, TCP client and listener, number parsing |
 
 ```cpp

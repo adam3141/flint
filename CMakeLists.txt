@@ -40,6 +40,7 @@ target_sources(flint
     src/log/record.cpp
     src/log/rotating_file.cpp
     src/log/tracy_sink.cpp
+    src/model/command.cpp
     src/net/socket_posix.cpp
     src/net/tcp_client.cpp
     src/net/tcp_listener.cpp

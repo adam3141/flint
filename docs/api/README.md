@@ -9,6 +9,7 @@ How to use flint, by module. Every public declaration is also documented in its 
 | [Benchmarking and profiling](bench-and-profile.md) | `flint/bench/*.hpp`, `flint/profile/profile.hpp` |
 | [Platform, networking and text](platform-net-text.md) | `flint/platform/*.hpp`, `flint/net/*.hpp`, `flint/text/*.hpp` |
 | [Reflection utilities](meta.md) | `flint/meta/*.hpp` |
+| [Signals, observables and commands](events-and-models.md) | `flint/event/*.hpp`, `flint/model/*.hpp` |
 
 ## Using flint in a CMake project
 

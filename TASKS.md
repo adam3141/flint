@@ -13,14 +13,15 @@ Status: `[ ]` to do, `[~]` in progress, `[x]` done. Newest work at the top of ea
 - [x] `flint-logcat` network collector
 - [x] `flint::bench` (runner, statistics, FrameStats) and `FLINT_PROFILE_*` Tracy macros (ADR-0008)
 - [x] `flint::platform` (uptime, threads, terminal, process) and `flint::net` (POSIX TCP)
-- [x] 64 unit tests and a header self-containment check; clang-tidy and clang-format clean
+- [x] Unit tests (89) and a header self-containment check; clang-tidy and clang-format clean
 - [x] Demos: `flint_log_demo`, `flint_bench_demo`
+- [x] `flint::event::Signal` with scoped `Connection` and `ConnectionGroup`; `flint::model::Observable` and `Command` (ADR-0009); 25 tests
 
 ## Next
 
 - [ ] Struct reflection in `flint::meta` (`ForEachMember`, member names and types), needed by agate view models
 - [ ] Reflection-based JSON (de)serialisation (`json::ToJson`, `json::FromJson<T>`)
-- [ ] An observable property and signal primitive (`flint::Signal<Args...>`) if agate's design puts change notification in flint. Waiting on the agate design questions
+- [ ] Parameterised commands (`Command<T>` with a CommandParameter), when agate controls need them
 - [ ] Cache local-time conversion in `PatternFormatter` (it dominates the 0.9 µs format cost)
 - [ ] Optional lock-free MPSC queue for the logger, if benchmarks under UI load show contention
 - [ ] Hot reload of the logging configuration (watch the file)

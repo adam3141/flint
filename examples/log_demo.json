@@ -1,0 +1,27 @@
+// Logging configuration for flint_log_demo. Comments and trailing commas are allowed in configuration files.
+{
+  // Custom levels slot between the standard ones (Trace 100, Debug 200, Info 300, Warning 400, Error 500, Fatal 600).
+  "levels": [
+    { "name": "Verbose", "severity": 150, "colour": "magenta" },
+    { "name": "Notice", "severity": 350, "colour": "brightBlue" },
+  ],
+
+  // Categories (channels) are filtered independently of severity.
+  "categories": [ "layout", "render", "binding" ],
+
+  "sinks": [
+    {
+      "type": "console",
+      "minLevel": "Verbose",
+      "colour": "auto",          // auto | always | never
+      "categories": {
+        "render": "Warning",     // only warnings and above from the renderer
+        "binding": "Off",        // nothing from data binding
+      },
+    },
+    { "type": "file", "path": "logs/demo.log", "minLevel": "Trace", "maxBytes": 1048576, "maxFiles": 3 },
+    { "type": "json", "path": "logs/demo.jsonl", "minLevel": "Trace" },
+    // Run `flint-logcat` in another terminal to watch this stream.
+    { "type": "network", "host": "127.0.0.1", "port": 9020, "minLevel": "Debug" },
+  ],
+}

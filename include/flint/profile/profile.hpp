@@ -14,7 +14,8 @@
 //     ...
 //   }
 
-#if defined(FLINT_ENABLE_TRACY)
+// NOLINTBEGIN(cppcoreguidelines-macro-usage): Tracy zones need a static source location per use site (ADR-0008)
+#ifdef FLINT_ENABLE_TRACY
 
 #include <tracy/Tracy.hpp>
 
@@ -44,3 +45,4 @@
 #define FLINT_PROFILE_THREAD_NAME(name) static_cast<void>(0)
 
 #endif
+// NOLINTEND(cppcoreguidelines-macro-usage)

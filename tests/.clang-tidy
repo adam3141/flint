@@ -2,7 +2,10 @@
 #   readability-magic-numbers           expected values in assertions are the data under test; naming each obscures it
 #   bugprone-unchecked-optional-access  accesses are guarded by gtest ASSERT_* macros, which the dataflow analysis cannot
 #                                       see through; debug builds define _GLIBCXX_ASSERTIONS, so a bad access aborts
+#   misc-non-private-member-variables-in-classes
+#                                       gtest fixtures share state with TEST_F bodies, which are derived classes
 InheritParentConfig: true
 Checks: >
   -readability-magic-numbers,
-  -bugprone-unchecked-optional-access
+  -bugprone-unchecked-optional-access,
+  -misc-non-private-member-variables-in-classes

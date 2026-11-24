@@ -107,7 +107,7 @@ auto AnsiSequence(Colour colour) noexcept -> std::string_view {
       return "\x1b[36m";
     case Colour::White:
       return "\x1b[37m";
-    case Colour::Gray:
+    case Colour::Grey:
       return "\x1b[90m";
     case Colour::BrightRed:
       return "\x1b[91m";

@@ -17,7 +17,7 @@ TEST(StatisticsTest, SummarisesSamples) {
   for (int i = 100; i >= 1; --i) {
     samples.emplace_back(i);
   }
-  const auto summary = flint::bench::Summarize(samples);
+  const auto summary = flint::bench::Summarise(samples);
   EXPECT_EQ(summary.count, 100U);
   EXPECT_EQ(summary.min, nanoseconds{1});
   EXPECT_EQ(summary.max, nanoseconds{100});
@@ -28,7 +28,7 @@ TEST(StatisticsTest, SummarisesSamples) {
 }
 
 TEST(StatisticsTest, EmptyInputGivesZeroSummary) {
-  EXPECT_EQ(flint::bench::Summarize({}).count, 0U);
+  EXPECT_EQ(flint::bench::Summarise({}).count, 0U);
 }
 
 TEST(BenchmarkTest, RunsAtLeastTheMinimumIterations) {

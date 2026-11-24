@@ -22,6 +22,6 @@ struct Summary {
 
 /// Computes summary statistics. Percentiles use the nearest-rank method.
 /// @param samples The durations; need not be sorted. An empty span gives a zero Summary.
-[[nodiscard]] auto Summarize(std::span<const std::chrono::nanoseconds> samples) -> Summary;
+[[nodiscard]] auto Summarise(std::span<const std::chrono::nanoseconds> samples) -> Summary;
 
 }  // namespace flint::bench

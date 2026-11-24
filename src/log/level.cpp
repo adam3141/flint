@@ -21,7 +21,7 @@ namespace {
 class LevelRegistry {
 public:
   LevelRegistry() {
-    m_levels.push_back(LevelInfo{.name = "Trace", .level = kTrace, .colour = Colour::Gray});
+    m_levels.push_back(LevelInfo{.name = "Trace", .level = kTrace, .colour = Colour::Grey});
     m_levels.push_back(LevelInfo{.name = "Debug", .level = kDebug, .colour = Colour::Cyan});
     m_levels.push_back(LevelInfo{.name = "Info", .level = kInfo, .colour = Colour::Green});
     m_levels.push_back(LevelInfo{.name = "Warning", .level = kWarning, .colour = Colour::BrightYellow});
@@ -121,7 +121,7 @@ auto LevelName(Level level) -> std::optional<std::string_view> {
 
 auto LevelColour(Level level) -> Colour {
   static constexpr std::array<Colour, 6> kStandardColours{
-      Colour::Gray,
+      Colour::Grey,
       Colour::Cyan,
       Colour::Green,
       Colour::BrightYellow,

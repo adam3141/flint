@@ -28,7 +28,7 @@ auto FrameStats::Frames() const -> std::vector<std::chrono::nanoseconds> {
 }
 
 auto FrameStats::GetSummary() const -> Summary {
-  return Summarize(Frames());
+  return Summarise(Frames());
 }
 
 auto FrameStats::FramesPerSecond() const -> double {

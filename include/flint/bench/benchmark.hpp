@@ -44,7 +44,7 @@ auto Escape(const void* pointer) noexcept -> void;
 
 /// Keeps a value alive as far as the optimiser is concerned. Call on benchmark results.
 template <typename Value>
-auto DoNotOptimize(const Value& value) noexcept -> void {
+auto DoNotOptimise(const Value& value) noexcept -> void {
   detail::Escape(&value);
 }
 

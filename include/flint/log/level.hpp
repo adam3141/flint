@@ -22,7 +22,7 @@ enum class Colour : std::uint8_t {
   Magenta,
   Cyan,
   White,
-  Gray,
+  Grey,
   BrightRed,
   BrightGreen,
   BrightYellow,

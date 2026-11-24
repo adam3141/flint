@@ -42,7 +42,7 @@ auto TracyColour(Colour colour) -> std::uint32_t {
     case Colour::Cyan:
     case Colour::BrightCyan:
       return 0x50D0D0;
-    case Colour::Gray:
+    case Colour::Grey:
       return 0x909090;
     case Colour::Alarm:
       return 0xFF0000;

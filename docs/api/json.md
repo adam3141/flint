@@ -43,8 +43,8 @@ Integers that fit in 64 bits stay exact; larger numbers become doubles. Nesting 
 ## Writing
 
 ```cpp
-json::Serialize(value);                    // compact
-json::Serialize(value, {.indent = 2});     // pretty
+json::Serialise(value);                    // compact
+json::Serialise(value, {.indent = 2});     // pretty
 
 std::string out;                           // streaming, no tree: for hot paths
 json::Writer writer{out};

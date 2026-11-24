@@ -211,7 +211,7 @@ auto Writer::Write(const Value& value) -> void {
   }
 }
 
-auto Serialize(const Value& value, WriteOptions options) -> std::string {
+auto Serialise(const Value& value, WriteOptions options) -> std::string {
   std::string out;
   Writer writer{out, options};
   writer.Write(value);

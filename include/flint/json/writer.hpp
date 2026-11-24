@@ -19,7 +19,7 @@ struct WriteOptions {
 /// @param value The value to write.
 /// @param options Layout options.
 /// @return The JSON text.
-[[nodiscard]] auto Serialize(const Value& value, WriteOptions options = {}) -> std::string;
+[[nodiscard]] auto Serialise(const Value& value, WriteOptions options = {}) -> std::string;
 
 /// Appends a string to `out` as a quoted JSON string literal, escaping as RFC 8259 requires.
 /// @param out The buffer to append to.

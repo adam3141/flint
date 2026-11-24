@@ -28,7 +28,7 @@ constexpr int kBatch = 1000;
 
 auto NullLogger(flint::log::Mode mode, flint::log::Level minimum) -> std::unique_ptr<flint::log::Logger> {
   auto logger = std::make_unique<flint::log::Logger>(flint::log::LoggerOptions{.mode = mode});
-  logger->AddSink(std::make_unique<flint::log::CallbackSink>([](const flint::log::Record& record) { flint::bench::DoNotOptimize(record); }),
+  logger->AddSink(std::make_unique<flint::log::CallbackSink>([](const flint::log::Record& record) { flint::bench::DoNotOptimise(record); }),
                   flint::log::Filter{minimum});
   return logger;
 }
@@ -68,7 +68,7 @@ auto Run(std::span<char*> arguments) -> int {
       out.clear();
       formatter->Format(record, out);
     }
-    flint::bench::DoNotOptimize(out);
+    flint::bench::DoNotOptimise(out);
   });
   suite.Add("json-record x1000", [&] {
     std::string out;
@@ -76,7 +76,7 @@ auto Run(std::span<char*> arguments) -> int {
       out.clear();
       flint::log::AppendJsonRecord(record, out);
     }
-    flint::bench::DoNotOptimize(out);
+    flint::bench::DoNotOptimise(out);
   });
 
   std::string jsonLine;
@@ -84,7 +84,7 @@ auto Run(std::span<char*> arguments) -> int {
   suite.Add("json-parse x1000", [&] {
     for (int i = 0; i < kBatch; ++i) {
       const auto parsed = flint::json::Parse(jsonLine);
-      flint::bench::DoNotOptimize(parsed);
+      flint::bench::DoNotOptimise(parsed);
     }
   });
 

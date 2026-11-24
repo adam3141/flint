@@ -23,7 +23,7 @@ auto Percentile(std::span<const std::chrono::nanoseconds> sorted, double fractio
 
 }  // namespace
 
-auto Summarize(std::span<const std::chrono::nanoseconds> samples) -> Summary {
+auto Summarise(std::span<const std::chrono::nanoseconds> samples) -> Summary {
   if (samples.empty()) {
     return {};
   }

@@ -13,7 +13,7 @@ using flint::json::Array;
 using flint::json::Object;
 using flint::json::Parse;
 using flint::json::ParseErrorCode;
-using flint::json::Serialize;
+using flint::json::Serialise;
 using flint::json::Value;
 
 TEST(JsonParseTest, ParsesScalars) {
@@ -81,20 +81,20 @@ TEST(JsonParseTest, RejectsDeepNesting) {
   EXPECT_EQ(value.error().code, ParseErrorCode::NestingTooDeep);
 }
 
-TEST(JsonWriteTest, RoundTripsThroughSerialize) {
+TEST(JsonWriteTest, RoundTripsThroughSerialise) {
   const Value original = Object{{"name", "Topaz"}, {"dark", true}, {"scale", 1.5}, {"list", Array{1, "two", nullptr}}};
-  const auto text = Serialize(original);
+  const auto text = Serialise(original);
   EXPECT_EQ(text, R"({"name":"Topaz","dark":true,"scale":1.5,"list":[1,"two",null]})");
   EXPECT_EQ(*Parse(text), original);
 }
 
 TEST(JsonWriteTest, EscapesControlCharacters) {
-  EXPECT_EQ(Serialize(Value{"tab\there\x01"}), R"("tab\there\u0001")");
+  EXPECT_EQ(Serialise(Value{"tab\there\x01"}), R"("tab\there\u0001")");
 }
 
 TEST(JsonWriteTest, IndentsWhenAsked) {
   const Value value = Object{{"a", Array{1, 2}}};
-  EXPECT_EQ(Serialize(value, {.indent = 2}), "{\n  \"a\": [\n    1,\n    2\n  ]\n}");
+  EXPECT_EQ(Serialise(value, {.indent = 2}), "{\n  \"a\": [\n    1,\n    2\n  ]\n}");
 }
 
 }  // namespace

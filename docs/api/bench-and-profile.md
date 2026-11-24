@@ -8,7 +8,7 @@
 flint::bench::Suite suite{"layout"};
 suite.Add("measure 1000 buttons", [&] {
   for (auto& button : buttons) {
-    flint::bench::DoNotOptimize(button.Measure(available));
+    flint::bench::DoNotOptimise(button.Measure(available));
   }
 });
 std::print("{}", flint::bench::FormatTable(suite.RunAll(/*filter=*/"")));

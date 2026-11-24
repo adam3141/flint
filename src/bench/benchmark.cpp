@@ -43,7 +43,7 @@ auto Run(std::string_view name, const std::function<void()>& function, const Ben
     function();
     samples.push_back(stopwatch.Elapsed());
   }
-  return BenchmarkResult{.name = std::string{name}, .summary = Summarize(samples)};
+  return BenchmarkResult{.name = std::string{name}, .summary = Summarise(samples)};
 }
 
 Suite::Suite(std::string name, BenchmarkOptions options) : m_name{std::move(name)}, m_options{options} {}

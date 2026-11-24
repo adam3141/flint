@@ -164,7 +164,7 @@ Written by `JsonFileSink` and `NetworkSink` (see `AppendJsonRecord`):
 }
 ```
 
-Colours: `default`, `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `gray`, the `bright*` variants (for example `brightRed`), and `alarm`.
+Colours: `default`, `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `grey`, the `bright*` variants (for example `brightRed`), and `alarm`.
 
 Errors give a JSON Pointer and a reason, for example `unknown level at /sinks/0/minLevel: no level named 'Loud'`. On error the logger keeps its previous sinks.
 

@@ -13,7 +13,7 @@ flint provides `flint::json`:
 
 - `Value` (null, bool, int64, double, string, `Array`, `Object`) has an **ordered** `Object`, so files written back out keep their order.
 - `Parse` returns `std::expected<Value, ParseError>`, with line and column. It allows comments and trailing commas only when asked (`kConfigParseOptions`), and limits nesting depth.
-- `Writer` streams JSON straight into a `std::string` with no tree, for hot paths such as log sinks. `Serialize` writes a `Value`.
+- `Writer` streams JSON straight into a `std::string` with no tree, for hot paths such as log sinks. `Serialise` writes a `Value`.
 
 ## Consequences
 

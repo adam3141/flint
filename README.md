@@ -5,6 +5,7 @@ The foundation library of the [silica](https://github.com/adam3141/silica) works
 | Module | What it gives you |
 |---|---|
 | `flint/log` | A fast asynchronous logger. Standard and **custom levels**, **categories**, console (ANSI colour), text-file, JSON Lines, TCP and Tracy sinks, and JSON configuration files |
+| `flint/xml` | A small XML parser with line and column locations, for markup and configuration |
 | `flint/json` | An ordered JSON value, a strict or config-mode parser with line/column errors, and a streaming writer |
 | `flint/bench` | A benchmark runner, statistics (p50/p95/p99) and frame-time tracking |
 | `flint/profile` | Tracy profiler zones (`FLINT_PROFILE_ZONE()`), compiled out unless enabled |

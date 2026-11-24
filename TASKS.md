@@ -13,8 +13,9 @@ Status: `[ ]` to do, `[~]` in progress, `[x]` done. Newest work at the top of ea
 - [x] `flint-logcat` network collector
 - [x] `flint::bench` (runner, statistics, FrameStats) and `FLINT_PROFILE_*` Tracy macros (ADR-0008)
 - [x] `flint::platform` (uptime, threads, terminal, process) and `flint::net` (POSIX TCP)
-- [x] Unit tests (89) and a header self-containment check; clang-tidy and clang-format clean
+- [x] Unit tests (96) and a header self-containment check; clang-tidy and clang-format clean
 - [x] Demos: `flint_log_demo`, `flint_bench_demo`
+- [x] `flint::xml` parser with line and column locations (ADR-0010); 7 tests
 - [x] `flint::event::Signal` with scoped `Connection` and `ConnectionGroup`; `flint::model::Observable` and `Command` (ADR-0009); 25 tests
 
 ## Next

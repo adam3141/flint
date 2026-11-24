@@ -12,6 +12,7 @@ add_executable(flint_tests
   meta_enum_test.cpp
   model_test.cpp
   platform_test.cpp
+  xml_test.cpp
 )
 
 target_link_libraries(flint_tests PRIVATE flint::flint GTest::gtest_main GTest::gmock)

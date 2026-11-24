@@ -17,10 +17,17 @@ Status: `[ ]` to do, `[~]` in progress, `[x]` done. Newest work at the top of ea
 - [x] Demos: `flint_log_demo`, `flint_bench_demo`
 - [x] `flint::event::Signal` with scoped `Connection` and `ConnectionGroup`; `flint::model::Observable` and `Command` (ADR-0009); 25 tests
 
+## Milestone 4 (first tasks; not started, the owner will start milestone 4)
+
+Owner decision (2026-11-25): use established libraries instead of flint's own JSON and XML parsers.
+
+- [ ] **Replace `flint::json` with glaze.** Check glaze builds cleanly with GCC 16, `-freflection` and the workspace warnings. Move the logger configuration, the JSON Lines and network sinks, and `flint-logcat` to it. Keep `std::expected` errors with line and column for configuration files. Drop the planned reflection-based JSON (de)serialisation task, which glaze covers. Supersede ADR-0005 with a new ADR.
+- [ ] **Replace the hand-written XML parser with pugixml** (MIT). Keep `flint::xml::Element`, `Attribute` and `Location` as a thin wrapper, with line and column computed from pugixml's offsets, so agate's markup loader does not change. Keep rejecting DTDs and limiting nesting depth. Supersede ADR-0010 with a new ADR. flint#4 (the hand-written parser) is on hold until this is decided in code.
+
 ## Next
 
 - [ ] Struct reflection in `flint::meta` (`ForEachMember`, member names and types), needed by agate view models
-- [ ] Reflection-based JSON (de)serialisation (`json::ToJson`, `json::FromJson<T>`)
+- [ ] ~~Reflection-based JSON (de)serialisation~~: covered by glaze (milestone 4 task above)
 - [ ] Parameterised commands (`Command<T>` with a CommandParameter), when agate controls need them
 - [ ] Cache local-time conversion in `PatternFormatter` (it dominates the 0.9 µs format cost)
 - [ ] Optional lock-free MPSC queue for the logger, if benchmarks under UI load show contention

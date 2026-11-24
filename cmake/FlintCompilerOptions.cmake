@@ -10,6 +10,8 @@ set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 # Applies the workspace warning set, treated as errors, and any configured sanitizers to a target.
 function(flint_target_options target)
+  # No C++20 modules yet; scanning adds GCC-only flags that clangd and clang-tidy reject.
+  set_target_properties(${target} PROPERTIES CXX_SCAN_FOR_MODULES OFF)
   if(MSVC)
     target_compile_options(${target} PRIVATE /W4 /permissive- /WX /utf-8)
   else()

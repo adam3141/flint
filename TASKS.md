@@ -33,5 +33,5 @@ Status: `[ ]` to do, `[~]` in progress, `[x]` done. Newest work at the top of ea
 
 ## Questions for the owner
 
-- [ ] Should logging at Fatal optionally terminate the process (for example a `LoggerOptions::abortOnFatal`)? Today it only flushes.
-- [ ] Test code disables `readability-magic-numbers` and `bugprone-unchecked-optional-access` (`tests/.clang-tidy`, with reasons). Is that acceptable under coding-style.md section 19?
+- [x] Should logging at Fatal optionally terminate the process? **No** (owner, 2026-11-25): Fatal flushes and returns; stopping is the caller's decision (ADR-0004).
+- [x] Test code disables `readability-magic-numbers` and `bugprone-unchecked-optional-access` (`tests/.clang-tidy`, with reasons). Accepted by the owner (2026-11-24).

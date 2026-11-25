@@ -27,7 +27,7 @@ struct Attribute {
   Location valueLocation;
 };
 
-/// An element with its attributes, child elements and text (flint ADR-0010).
+/// An element with its attributes, child elements and text (flint ADR-0011).
 ///
 /// Text directly inside the element is joined into `text`; text that is only whitespace is dropped. That suits markup
 /// (agate, configuration), where mixed content is rare. Comments, processing instructions and the XML declaration are

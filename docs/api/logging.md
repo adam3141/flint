@@ -141,7 +141,7 @@ Written by `JsonFileSink` and `NetworkSink` (see `AppendJsonRecord`):
 
 ## Configuration file
 
-`ConfigureFromFile(logger, path)` or `ConfigureFromText(logger, text)`. Comments and trailing commas are allowed. Enum values are case-insensitive.
+`ConfigureFromFile(logger, path)` or `ConfigureFromText(logger, text)`. The file is read with glaze (ADR-0012) into `log::LoggingConfig`. Comments are allowed; trailing commas and unknown keys are not. Enum values are case-insensitive.
 
 ```jsonc
 {
@@ -166,7 +166,16 @@ Written by `JsonFileSink` and `NetworkSink` (see `AppendJsonRecord`):
 
 Colours: `default`, `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, `grey`, the `bright*` variants (for example `brightRed`), and `alarm`.
 
-Errors give a JSON Pointer and a reason, for example `unknown level at /sinks/0/minLevel: no level named 'Loud'`. On error the logger keeps its previous sinks.
+JSON that cannot be read gives a line and column, for example ``malformed JSON at line 3, column 4: unknown key in `"sinkz": []` ``. Values that are read but make no sense give a JSON Pointer, for example `unknown level at /sinks/0/minLevel: no level named 'Loud'`. On error the logger keeps its previous sinks.
+
+`LoggingConfig` is a plain struct, so it can be part of an application's own configuration, read with glaze in one go, and passed to `Configure(logger, config)`. It can also be built in code:
+
+```cpp
+log::LoggingConfig config;
+config.sinks.push_back({.type = "console", .minLevel = log::LevelSetting{"Warning"}});
+config.sinks.push_back({.type = "json", .path = "logs/app.jsonl"});
+if (auto ok = log::Configure(log::DefaultLogger(), config); !ok.has_value()) { /* ok.error().Describe() */ }
+```
 
 ## flint-logcat
 

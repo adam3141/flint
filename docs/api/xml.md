@@ -5,7 +5,7 @@
 #include "flint/xml/element.hpp"  // Element, Attribute, Location
 ```
 
-A small XML parser for markup and configuration files (ADR-0010). It reads a document into a tree of elements, and every element and attribute keeps its line and column for error messages.
+XML for markup and configuration files, parsed by pugixml (ADR-0011). `Parse` reads a document into a tree of elements, and every element and attribute keeps its line and column for error messages. pugixml does not appear in the API.
 
 ```cpp
 auto document = flint::xml::Parse(text);
@@ -43,4 +43,6 @@ The parser handles:
 - comments and processing instructions, which are skipped (including the XML declaration);
 - the five predefined entities, and decimal and hexadecimal character references.
 
-`<!DOCTYPE` is an error, so no external or expanding entities can be loaded. Nesting deeper than 256 elements is an error. Namespace prefixes are kept as written, not resolved.
+`<!DOCTYPE` is an error (`DocumentTypeNotAllowed`), so no external or expanding entities can be loaded. Nesting deeper than 256 elements is an error. Namespace prefixes are kept as written, not resolved.
+
+Errors are stricter than pugixml's defaults: an unknown entity, `<` in an attribute value, a duplicate attribute, a second root element or text outside the root element is reported with its location.

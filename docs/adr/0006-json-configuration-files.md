@@ -1,6 +1,6 @@
 # 0006. JSON (with comments) for configuration files
 
-- Status: Accepted
+- Status: Accepted, amended by [ADR-0012](0012-json-with-glaze.md): files are read with glaze, which allows comments but not trailing commas
 - Date: 2026-11-24
 
 ## Context

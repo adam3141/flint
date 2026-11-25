@@ -18,12 +18,12 @@ Status: `[ ]` to do, `[~]` in progress, `[x]` done. Newest work at the top of ea
 - [x] `flint::xml` parser with line and column locations (ADR-0010); 7 tests
 - [x] `flint::event::Signal` with scoped `Connection` and `ConnectionGroup`; `flint::model::Observable` and `Command` (ADR-0009); 25 tests
 
-## Milestone 4 (first tasks; not started, the owner will start milestone 4)
+## Milestone 4 (started 2026-11-25)
 
 Owner decision (2026-11-25): use established libraries instead of flint's own JSON and XML parsers.
 
-- [ ] **Replace `flint::json` with glaze.** Check glaze builds cleanly with GCC 16, `-freflection` and the workspace warnings. Move the logger configuration, the JSON Lines and network sinks, and `flint-logcat` to it. Keep `std::expected` errors with line and column for configuration files. Drop the planned reflection-based JSON (de)serialisation task, which glaze covers. Supersede ADR-0005 with a new ADR.
-- [ ] **Replace the hand-written XML parser with pugixml** (MIT). Keep `flint::xml::Element`, `Attribute` and `Location` as a thin wrapper, with line and column computed from pugixml's offsets, so agate's markup loader does not change. Keep rejecting DTDs and limiting nesting depth. Supersede ADR-0010 with a new ADR. flint#4 (the hand-written parser) is on hold until this is decided in code.
+- [x] **Replace `flint::json` with glaze** (ADR-0012; owner chose to use glaze directly). glaze v9.1.0 builds cleanly with GCC 16 and `-freflection`. The logging configuration is the glaze-read struct `LoggingConfig` (line and column for read errors, JSON Pointers for meaning). JSON Lines records go through a reflected struct: writing is 2.5 times faster. `flint::json` is removed.
+- [x] **Replace the hand-written XML parser with pugixml** (ADR-0011). `flint::xml` keeps its types; pugixml v1.16 parses in place and flint maps offsets to lines and columns, decodes entities strictly and still rejects DTDs and deep nesting. 10 XML tests.
 
 ## Next
 

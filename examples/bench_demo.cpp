@@ -13,7 +13,6 @@
 #include <string_view>
 
 #include "flint/bench/benchmark.hpp"
-#include "flint/json/parser.hpp"
 #include "flint/log/callback_sink.hpp"
 #include "flint/log/filter.hpp"
 #include "flint/log/json_record.hpp"
@@ -81,9 +80,9 @@ auto Run(std::span<char*> arguments) -> int {
 
   std::string jsonLine;
   flint::log::AppendJsonRecord(record, jsonLine);
-  suite.Add("json-parse x1000", [&] {
+  suite.Add("json-read-record x1000", [&] {
     for (int i = 0; i < kBatch; ++i) {
-      const auto parsed = flint::json::Parse(jsonLine);
+      const auto parsed = flint::log::RecordFromJson(jsonLine);
       flint::bench::DoNotOptimise(parsed);
     }
   });

@@ -67,8 +67,37 @@ TEST(XmlTest, RejectsMalformedDocuments) {
   EXPECT_EQ(Parse("<a>&nope;</a>").error().code, ParseErrorCode::InvalidEntity);
   EXPECT_EQ(Parse("<a>&#0;</a>").error().code, ParseErrorCode::InvalidEntity);
   EXPECT_EQ(Parse("<a/><b/>").error().code, ParseErrorCode::TrailingContent);
-  EXPECT_EQ(Parse("<!DOCTYPE a><a/>").error().code, ParseErrorCode::UnexpectedCharacter);
+  EXPECT_EQ(Parse("<!DOCTYPE a><a/>").error().code, ParseErrorCode::DocumentTypeNotAllowed);
+  EXPECT_EQ(Parse("<a/>text").error().code, ParseErrorCode::TrailingContent);
+  EXPECT_EQ(Parse("text<a/>").error().code, ParseErrorCode::UnexpectedCharacter);
+  EXPECT_EQ(Parse("<a><b></a>").error().code, ParseErrorCode::MismatchedEndTag);
+  EXPECT_EQ(Parse("<a><b/>").error().code, ParseErrorCode::UnexpectedEnd);
   EXPECT_EQ(Parse("<a b=\"<\"/>").error().code, ParseErrorCode::UnexpectedCharacter);
+}
+
+TEST(XmlTest, ReportsTheElementLeftOpen) {
+  const auto document = Parse("<a>\n  <b x=\">\"/>\n  <c><!-- </c> --></c>\n");
+  ASSERT_FALSE(document.has_value());
+  EXPECT_EQ(document.error().code, ParseErrorCode::UnexpectedEnd);
+  EXPECT_EQ(document.error().detail, "expected </a>");
+}
+
+TEST(XmlTest, LocatesEntityErrorsAndEmptyValues) {
+  const auto bad = Parse("<a>\n  <b t=\"x &nope; y\"/>\n</a>");
+  ASSERT_FALSE(bad.has_value());
+  EXPECT_EQ(bad.error().code, ParseErrorCode::InvalidEntity);
+  EXPECT_EQ(bad.error().location, (Location{.line = 2, .column = 11}));
+
+  const auto empty = Parse("<a b=''  c=\"&#10;\"/>");
+  ASSERT_TRUE(empty.has_value()) << empty.error().Describe();
+  EXPECT_EQ(empty->attributes[0].valueLocation, (Location{.line = 1, .column = 7}));
+  EXPECT_EQ(empty->GetAttribute("c"), "\n");
+}
+
+TEST(XmlTest, SkipsTheByteOrderMark) {
+  const auto document = Parse("\xEF\xBB\xBF<a/>");
+  ASSERT_TRUE(document.has_value());
+  EXPECT_EQ(document->location, (Location{.line = 1, .column = 1}));
 }
 
 TEST(XmlTest, LimitsNestingDepth) {

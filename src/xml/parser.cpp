@@ -1,13 +1,19 @@
 #include "flint/xml/parser.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <format>
+#include <iterator>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
+
+#include <pugixml.hpp>
 
 #include "flint/text/number.hpp"
 #include "flint/xml/element.hpp"
@@ -17,23 +23,12 @@ namespace {
 
 constexpr std::size_t kMaximumDepth = 256;
 constexpr std::string_view kByteOrderMark = "\xEF\xBB\xBF";
-constexpr std::string_view kCdataEnd = "]]>";
-// Bytes from 0x80 up are UTF-8 sequences, which XML allows in names.
-constexpr unsigned kFirstNonAscii = 0x80U;
 
-auto IsSpace(char character) -> bool {
-  return character == ' ' || character == '\t' || character == '\n' || character == '\r';
-}
-
-auto IsNameStart(char character) -> bool {
-  const auto byte = static_cast<unsigned char>(character);
-  return (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') || character == '_' || character == ':' ||
-         byte >= kFirstNonAscii;
-}
-
-auto IsNameCharacter(char character) -> bool {
-  return IsNameStart(character) || (character >= '0' && character <= '9') || character == '-' || character == '.';
-}
+// pugixml checks the structure (ADR-0011). Entities are decoded here rather than with parse_escapes, so an unknown
+// entity is an error with a location instead of text left as written. DOCTYPEs are parsed only to be rejected, and
+// fragment mode keeps text outside the root element, so that it can be reported.
+constexpr unsigned kParseOptions =
+    pugi::parse_cdata | pugi::parse_wconv_attribute | pugi::parse_eol | pugi::parse_doctype | pugi::parse_fragment;
 
 auto AppendUtf8(std::string& out, std::uint32_t codePoint) -> bool {
   constexpr std::uint32_t kOneByte = 0x80;
@@ -72,117 +67,241 @@ auto AppendUtf8(std::string& out, std::uint32_t codePoint) -> bool {
   return true;
 }
 
-class Parser {
+// Maps byte offsets to lines and columns.
+class Locator {
 public:
-  explicit Parser(std::string_view text) : m_text{text} {}
+  explicit Locator(std::string_view text) {
+    m_lineStarts.push_back(0);
+    for (std::size_t i = 0; i < text.size(); ++i) {
+      if (text[i] == '\n') {
+        m_lineStarts.push_back(i + 1);
+      }
+    }
+  }
 
-  auto ParseDocument() -> std::expected<Element, ParseError> {
-    SkipByteOrderMark();
-    if (auto prolog = SkipMisc(); !prolog.has_value()) {
-      return std::unexpected{prolog.error()};
-    }
-    if (AtEnd() || Peek() != '<') {
-      return Fail(ParseErrorCode::NoRootElement, "expected the root element");
-    }
-    auto root = ParseElement(0);
-    if (!root.has_value()) {
-      return root;
-    }
-    if (auto epilog = SkipMisc(); !epilog.has_value()) {
-      return std::unexpected{epilog.error()};
-    }
-    if (!AtEnd()) {
-      return Fail(ParseErrorCode::TrailingContent, "only comments and whitespace may follow the root element");
-    }
-    return root;
+  [[nodiscard]] auto At(std::size_t offset) const -> Location {
+    const auto next = std::ranges::upper_bound(m_lineStarts, offset);
+    const auto line = static_cast<std::size_t>(std::distance(m_lineStarts.begin(), next));
+    return Location{.line = static_cast<std::uint32_t>(line), .column = static_cast<std::uint32_t>(offset - *std::prev(next) + 1)};
   }
 
 private:
-  [[nodiscard]] auto AtEnd() const -> bool { return m_position >= m_text.size(); }
+  std::vector<std::size_t> m_lineStarts;
+};
 
-  [[nodiscard]] auto Peek() const -> char { return m_text[m_position]; }
+// Returns the position of the '>' that ends the start tag beginning before `from`, skipping quoted attribute values,
+// which may contain '>'.
+auto FindStartTagEnd(std::string_view text, std::size_t from) -> std::size_t {
+  char quote = 0;
+  for (std::size_t position = from; position < text.size(); ++position) {
+    const char character = text[position];
+    if (quote != 0) {
+      quote = character == quote ? char{0} : quote;
+    } else if (character == '"' || character == '\'') {
+      quote = character;
+    } else if (character == '>') {
+      return position;
+    }
+  }
+  return text.size();
+}
 
-  [[nodiscard]] auto StartsWith(std::string_view prefix) const -> bool { return m_text.substr(m_position).starts_with(prefix); }
-
-  [[nodiscard]] auto Here() const -> Location { return m_location; }
-
-  auto Advance(std::size_t count = 1) -> void {
-    for (std::size_t i = 0; i < count && !AtEnd(); ++i) {
-      if (m_text[m_position] == '\n') {
-        ++m_location.line;
-        m_location.column = 1;
-      } else {
-        ++m_location.column;
+// The names of the elements still open at `end`, outermost first. pugixml has already checked the text before `end`,
+// so a simple scan is enough; this only serves error messages.
+auto FindOpenElements(std::string_view text, std::size_t end) -> std::vector<std::string_view> {
+  std::vector<std::string_view> open;
+  std::size_t position = 0;
+  const auto skipPast = [&text, &position](std::string_view terminator) {
+    const std::size_t found = text.find(terminator, position);
+    position = found == std::string_view::npos ? text.size() : found + terminator.size();
+  };
+  while ((position = text.find('<', position)) < end) {
+    const std::string_view rest = text.substr(position);
+    if (rest.starts_with("<!--")) {
+      skipPast("-->");
+    } else if (rest.starts_with("<![CDATA[")) {
+      skipPast("]]>");
+    } else if (rest.starts_with("<?")) {
+      skipPast("?>");
+    } else if (rest.starts_with("<!")) {
+      skipPast(">");
+    } else if (rest.starts_with("</")) {
+      if (!open.empty()) {
+        open.pop_back();
       }
-      ++m_position;
+      skipPast(">");
+    } else {
+      const std::size_t nameEnd = std::min(text.find_first_of(" \t\r\n/>", position + 1), text.size());
+      const std::size_t tagEnd = FindStartTagEnd(text, nameEnd);
+      if (tagEnd < text.size() && text[tagEnd - 1] != '/') {
+        open.push_back(text.substr(position + 1, nameEnd - position - 1));
+      }
+      position = tagEnd + 1;
     }
   }
+  return open;
+}
 
-  [[nodiscard]] auto Fail(ParseErrorCode code, std::string detail) const -> std::unexpected<ParseError> {
-    return std::unexpected{ParseError{.code = code, .location = m_location, .detail = std::move(detail)}};
-  }
+// Turns pugixml's tree, parsed in place in a copy of the text, into flint::xml elements.
+class Converter {
+public:
+  Converter(std::string_view text, const char* buffer) : m_text{text}, m_buffer{buffer}, m_locator{text} {}
 
-  auto SkipByteOrderMark() -> void {
-    if (StartsWith(kByteOrderMark)) {
-      m_position += kByteOrderMark.size();
-    }
-  }
-
-  auto SkipSpace() -> void {
-    while (!AtEnd() && IsSpace(Peek())) {
-      Advance();
-    }
-  }
-
-  // Skips whitespace, comments and processing instructions (including the XML declaration).
-  auto SkipMisc() -> std::expected<void, ParseError> {
-    while (true) {
-      SkipSpace();
-      if (StartsWith("<!--")) {
-        if (auto skipped = SkipPast("-->", "unterminated comment"); !skipped.has_value()) {
-          return skipped;
-        }
-      } else if (StartsWith("<?")) {
-        if (auto skipped = SkipPast("?>", "unterminated processing instruction"); !skipped.has_value()) {
-          return skipped;
-        }
-      } else if (StartsWith("<!DOCTYPE")) {
-        return Fail(ParseErrorCode::UnexpectedCharacter, "document type declarations are not supported");
-      } else {
-        return {};
+  [[nodiscard]] auto ConvertDocument(const pugi::xml_document& document) const -> std::expected<Element, ParseError> {
+    std::optional<Element> root;
+    for (const pugi::xml_node& node : document.children()) {
+      const auto offset = static_cast<std::size_t>(node.offset_debug());
+      switch (node.type()) {
+        case pugi::node_element:
+          if (root.has_value()) {
+            return Fail(ParseErrorCode::TrailingContent, offset - 1, "a document has one root element");
+          }
+          if (auto element = ConvertElement(node, 0); element.has_value()) {
+            root = std::move(*element);
+          } else {
+            return element;
+          }
+          break;
+        case pugi::node_doctype:
+          return Fail(ParseErrorCode::DocumentTypeNotAllowed, m_text.rfind("<!", offset), {});
+        case pugi::node_pcdata:
+        case pugi::node_cdata:
+          return root.has_value()
+                     ? Fail(ParseErrorCode::TrailingContent, offset, "only comments and whitespace may follow the root element")
+                     : Fail(ParseErrorCode::UnexpectedCharacter, offset, "text before the root element");
+        default:
+          break;
       }
     }
+    if (!root.has_value()) {
+      return Fail(ParseErrorCode::NoRootElement, m_text.size(), "expected the root element");
+    }
+    return std::move(*root);
   }
 
-  auto SkipPast(std::string_view terminator, std::string_view what) -> std::expected<void, ParseError> {
-    const std::size_t end = m_text.find(terminator, m_position);
-    if (end == std::string_view::npos) {
-      return Fail(ParseErrorCode::UnexpectedEnd, std::string{what});
+  [[nodiscard]] auto DescribeFailure(const pugi::xml_parse_result& result) const -> ParseError {
+    const auto offset = static_cast<std::size_t>(std::max<std::ptrdiff_t>(result.offset, 0));
+    if (result.status == pugi::status_end_element_mismatch) {
+      const bool atEndTag = offset >= 2 && m_text.substr(offset - 2, 2) == "</";
+      const std::size_t tagStart = atEndTag ? offset - 2 : m_text.size();
+      const std::vector<std::string_view> open = FindOpenElements(m_text, tagStart);
+      const std::string expected = open.empty() ? std::string{} : std::format("expected </{}>", open.back());
+      if (!atEndTag) {
+        return Error(ParseErrorCode::UnexpectedEnd, m_text.size(), expected);
+      }
+      const std::size_t nameEnd = std::min(m_text.find_first_of(" \t\r\n>", offset), m_text.size());
+      return Error(
+          ParseErrorCode::MismatchedEndTag, tagStart, std::format("{}, found </{}>", expected, m_text.substr(offset, nameEnd - offset)));
     }
-    Advance(end + terminator.size() - m_position);
-    return {};
+    std::string detail{result.description()};
+    if (!detail.empty()) {
+      detail.front() = static_cast<char>(std::tolower(static_cast<unsigned char>(detail.front())));
+    }
+    if (offset >= m_text.size()) {
+      return Error(ParseErrorCode::UnexpectedEnd, m_text.size(), std::move(detail));
+    }
+    return Error(ParseErrorCode::UnexpectedCharacter, offset, std::move(detail));
   }
 
-  auto ParseName() -> std::expected<std::string, ParseError> {
-    if (AtEnd() || !IsNameStart(Peek())) {
-      return Fail(ParseErrorCode::UnexpectedCharacter, "expected a name");
-    }
-    const std::size_t start = m_position;
-    while (!AtEnd() && IsNameCharacter(Peek())) {
-      Advance();
-    }
-    return std::string{m_text.substr(start, m_position - start)};
+private:
+  [[nodiscard]] auto Error(ParseErrorCode code, std::size_t offset, std::string detail) const -> ParseError {
+    return ParseError{.code = code, .location = m_locator.At(offset), .detail = std::move(detail)};
   }
 
-  // Decodes an entity starting at '&' and appends it.
-  auto ParseEntity(std::string& out) -> std::expected<void, ParseError> {
-    const Location start = Here();
-    const std::size_t semicolon = m_text.find(';', m_position);
+  [[nodiscard]] auto Fail(ParseErrorCode code, std::size_t offset, std::string detail) const -> std::unexpected<ParseError> {
+    return std::unexpected{Error(code, offset, std::move(detail))};
+  }
+
+  // Strings pugixml parsed in place point into the buffer, at the same offsets as in the text.
+  [[nodiscard]] auto OffsetOf(const char* pointer) const -> std::size_t { return static_cast<std::size_t>(pointer - m_buffer); }
+
+  [[nodiscard]] auto ConvertElement(const pugi::xml_node& node, std::size_t depth) const -> std::expected<Element, ParseError> {
+    // offset_debug is where the name starts, just after '<'.
+    const auto offset = static_cast<std::size_t>(node.offset_debug()) - 1;
+    if (depth >= kMaximumDepth) {
+      return Fail(ParseErrorCode::NestingTooDeep, offset, std::format("elements may nest {} deep", kMaximumDepth));
+    }
+    Element element;
+    element.name = node.name();
+    element.location = m_locator.At(offset);
+    for (const pugi::xml_attribute& attribute : node.attributes()) {
+      auto converted = ConvertAttribute(attribute);
+      if (!converted.has_value()) {
+        return std::unexpected{std::move(converted.error())};
+      }
+      if (element.FindAttribute(converted->name) != nullptr) {
+        return Fail(ParseErrorCode::DuplicateAttribute, OffsetOf(attribute.name()), std::format("{} is set twice", converted->name));
+      }
+      element.attributes.push_back(std::move(*converted));
+    }
+    for (const pugi::xml_node& child : node.children()) {
+      if (child.type() == pugi::node_element) {
+        auto converted = ConvertElement(child, depth + 1);
+        if (!converted.has_value()) {
+          return converted;
+        }
+        element.children.push_back(std::move(*converted));
+      } else if (child.type() == pugi::node_pcdata) {
+        auto text = Decode(child.value(), OffsetOf(child.value()), /*inAttribute=*/false);
+        if (!text.has_value()) {
+          return std::unexpected{std::move(text.error())};
+        }
+        element.text += *text;
+      } else if (child.type() == pugi::node_cdata) {
+        element.text += child.value();
+      }
+    }
+    return element;
+  }
+
+  [[nodiscard]] auto ConvertAttribute(const pugi::xml_attribute& attribute) const -> std::expected<Attribute, ParseError> {
+    const std::string_view name = attribute.name();
+    const std::size_t nameOffset = OffsetOf(attribute.name());
+    // An empty value is not in the buffer, so find the opening quote in the text instead.
+    const std::size_t quote = m_text.find_first_of("\"'", nameOffset + name.size());
+    const std::size_t valueOffset = quote == std::string_view::npos ? nameOffset : quote + 1;
+    auto value = Decode(attribute.value(), valueOffset, /*inAttribute=*/true);
+    if (!value.has_value()) {
+      return std::unexpected{std::move(value.error())};
+    }
+    return Attribute{
+        .name = std::string{name},
+        .value = std::move(*value),
+        .location = m_locator.At(nameOffset),
+        .valueLocation = m_locator.At(valueOffset),
+    };
+  }
+
+  // Decodes the predefined and numeric entities in text that starts at `offset`.
+  [[nodiscard]] auto Decode(std::string_view raw, std::size_t offset, bool inAttribute) const -> std::expected<std::string, ParseError> {
+    std::string out;
+    out.reserve(raw.size());
+    for (std::size_t index = 0; index < raw.size(); ++index) {
+      const char character = raw[index];
+      if (character == '&') {
+        if (auto decoded = DecodeEntity(raw, index, offset, out); !decoded.has_value()) {
+          return std::unexpected{std::move(decoded.error())};
+        }
+      } else if (character == '<' && inAttribute) {
+        return Fail(ParseErrorCode::UnexpectedCharacter, offset + index, "write '<' as &lt; in an attribute value");
+      } else {
+        out.push_back(character);
+      }
+    }
+    return out;
+  }
+
+  // Decodes the entity starting at raw[index] ('&'), appends it, and leaves index on its ';'.
+  [[nodiscard]] auto DecodeEntity(std::string_view raw, std::size_t& index, std::size_t offset, std::string& out) const
+      -> std::expected<void, ParseError> {
+    const std::size_t start = offset + index;
+    const std::size_t semicolon = raw.find(';', index);
     constexpr std::size_t kLongestEntity = 12;
-    if (semicolon == std::string_view::npos || semicolon - m_position > kLongestEntity) {
-      return std::unexpected{ParseError{.code = ParseErrorCode::InvalidEntity, .location = start, .detail = "unterminated entity"}};
+    if (semicolon == std::string_view::npos || semicolon - index > kLongestEntity) {
+      return Fail(ParseErrorCode::InvalidEntity, start, "unterminated entity; write '&' as &amp;");
     }
-    const std::string_view name = m_text.substr(m_position + 1, semicolon - m_position - 1);
+    const std::string_view name = raw.substr(index + 1, semicolon - index - 1);
+    index = semicolon;
     if (name == "lt") {
       out.push_back('<');
     } else if (name == "gt") {
@@ -195,198 +314,21 @@ private:
       out.push_back('\'');
     } else if (name.starts_with('#')) {
       const bool isHex = name.size() > 1 && (name[1] == 'x' || name[1] == 'X');
-      const auto digits = name.substr(isHex ? 2 : 1);
       constexpr int kHex = 16;
       constexpr int kDecimal = 10;
-      const auto codePoint = text::ParseInteger<std::uint32_t>(digits, isHex ? kHex : kDecimal);
+      const auto codePoint = text::ParseInteger<std::uint32_t>(name.substr(isHex ? 2 : 1), isHex ? kHex : kDecimal);
       if (!codePoint.has_value() || !AppendUtf8(out, *codePoint)) {
-        return std::unexpected{ParseError{
-            .code = ParseErrorCode::InvalidEntity,
-            .location = start,
-            .detail = std::format("invalid character reference &{};", name),
-        }};
+        return Fail(ParseErrorCode::InvalidEntity, start, std::format("invalid character reference &{};", name));
       }
     } else {
-      return std::unexpected{
-          ParseError{.code = ParseErrorCode::InvalidEntity, .location = start, .detail = std::format("unknown entity &{};", name)}};
-    }
-    Advance(semicolon + 1 - m_position);
-    return {};
-  }
-
-  auto ParseAttributeValue() -> std::expected<std::string, ParseError> {
-    if (AtEnd() || (Peek() != '"' && Peek() != '\'')) {
-      return Fail(ParseErrorCode::UnexpectedCharacter, "expected a quoted attribute value");
-    }
-    const char quote = Peek();
-    Advance();
-    std::string value;
-    while (true) {
-      if (AtEnd()) {
-        return Fail(ParseErrorCode::UnexpectedEnd, "unterminated attribute value");
-      }
-      const char character = Peek();
-      if (character == quote) {
-        Advance();
-        return value;
-      }
-      if (character == '<') {
-        return Fail(ParseErrorCode::UnexpectedCharacter, "'<' is not allowed in an attribute value");
-      }
-      if (character == '&') {
-        if (auto entity = ParseEntity(value); !entity.has_value()) {
-          return std::unexpected{entity.error()};
-        }
-        continue;
-      }
-      value.push_back(character);
-      Advance();
-    }
-  }
-
-  auto ParseAttributes(Element& element) -> std::expected<void, ParseError> {
-    while (true) {
-      const bool hadSpace = !AtEnd() && IsSpace(Peek());
-      SkipSpace();
-      if (AtEnd()) {
-        return Fail(ParseErrorCode::UnexpectedEnd, std::format("unterminated start tag <{}>", element.name));
-      }
-      if (Peek() == '>' || StartsWith("/>")) {
-        return {};
-      }
-      if (!hadSpace) {
-        return Fail(ParseErrorCode::UnexpectedCharacter, "expected whitespace before an attribute");
-      }
-      const Location location = Here();
-      auto name = ParseName();
-      if (!name.has_value()) {
-        return std::unexpected{name.error()};
-      }
-      SkipSpace();
-      if (AtEnd() || Peek() != '=') {
-        return Fail(ParseErrorCode::UnexpectedCharacter, std::format("expected '=' after attribute {}", *name));
-      }
-      Advance();
-      SkipSpace();
-      const Location valueLocation{.line = Here().line, .column = Here().column + 1};
-      auto value = ParseAttributeValue();
-      if (!value.has_value()) {
-        return std::unexpected{value.error()};
-      }
-      if (element.FindAttribute(*name) != nullptr) {
-        return std::unexpected{ParseError{.code = ParseErrorCode::DuplicateAttribute, .location = location, .detail = *name}};
-      }
-      element.attributes.push_back(
-          Attribute{.name = std::move(*name), .value = std::move(*value), .location = location, .valueLocation = valueLocation});
-    }
-  }
-
-  // Parses text up to the next '<', decoding entities, and appends it unless it is only whitespace.
-  auto ParseText(Element& element) -> std::expected<void, ParseError> {
-    std::string text;
-    while (!AtEnd() && Peek() != '<') {
-      if (Peek() == '&') {
-        if (auto entity = ParseEntity(text); !entity.has_value()) {
-          return entity;
-        }
-        continue;
-      }
-      text.push_back(Peek());
-      Advance();
-    }
-    if (std::ranges::any_of(text, [](char character) { return !IsSpace(character); })) {
-      element.text += text;
+      return Fail(ParseErrorCode::InvalidEntity, start, std::format("unknown entity &{};", name));
     }
     return {};
-  }
-
-  auto ParseContent(Element& element, std::size_t depth) -> std::expected<void, ParseError> {
-    while (true) {
-      if (AtEnd()) {
-        return Fail(ParseErrorCode::UnexpectedEnd, std::format("missing </{}>", element.name));
-      }
-      if (StartsWith("</")) {
-        return ParseEndTag(element);
-      }
-      if (StartsWith("<!--")) {
-        if (auto skipped = SkipPast("-->", "unterminated comment"); !skipped.has_value()) {
-          return skipped;
-        }
-      } else if (StartsWith("<![CDATA[")) {
-        constexpr std::size_t kOpen = 9;
-        const std::size_t end = m_text.find(kCdataEnd, m_position);
-        if (end == std::string_view::npos) {
-          return Fail(ParseErrorCode::UnexpectedEnd, "unterminated CDATA section");
-        }
-        element.text += m_text.substr(m_position + kOpen, end - m_position - kOpen);
-        Advance(end + kCdataEnd.size() - m_position);
-      } else if (StartsWith("<?")) {
-        if (auto skipped = SkipPast("?>", "unterminated processing instruction"); !skipped.has_value()) {
-          return skipped;
-        }
-      } else if (Peek() == '<') {
-        auto child = ParseElement(depth + 1);
-        if (!child.has_value()) {
-          return std::unexpected{child.error()};
-        }
-        element.children.push_back(std::move(*child));
-      } else if (auto text = ParseText(element); !text.has_value()) {
-        return text;
-      }
-    }
-  }
-
-  auto ParseEndTag(const Element& element) -> std::expected<void, ParseError> {
-    const Location location = Here();
-    Advance(2);
-    auto name = ParseName();
-    if (!name.has_value()) {
-      return std::unexpected{name.error()};
-    }
-    if (*name != element.name) {
-      return std::unexpected{ParseError{
-          .code = ParseErrorCode::MismatchedEndTag,
-          .location = location,
-          .detail = std::format("expected </{}>, found </{}>", element.name, *name),
-      }};
-    }
-    SkipSpace();
-    if (AtEnd() || Peek() != '>') {
-      return Fail(ParseErrorCode::UnexpectedCharacter, "expected '>'");
-    }
-    Advance();
-    return {};
-  }
-
-  auto ParseElement(std::size_t depth) -> std::expected<Element, ParseError> {
-    if (depth > kMaximumDepth) {
-      return Fail(ParseErrorCode::NestingTooDeep, std::format("more than {} nested elements", kMaximumDepth));
-    }
-    Element element;
-    element.location = Here();
-    Advance();  // '<'
-    auto name = ParseName();
-    if (!name.has_value()) {
-      return std::unexpected{name.error()};
-    }
-    element.name = std::move(*name);
-    if (auto attributes = ParseAttributes(element); !attributes.has_value()) {
-      return std::unexpected{attributes.error()};
-    }
-    if (StartsWith("/>")) {
-      Advance(2);
-      return element;
-    }
-    Advance();  // '>'
-    if (auto content = ParseContent(element, depth); !content.has_value()) {
-      return std::unexpected{content.error()};
-    }
-    return element;
   }
 
   std::string_view m_text;
-  std::size_t m_position{0};
-  Location m_location;
+  const char* m_buffer;
+  Locator m_locator;
 };
 
 }  // namespace
@@ -440,13 +382,27 @@ auto ParseError::Describe() const -> std::string {
     case ParseErrorCode::NestingTooDeep:
       what = "nesting too deep";
       break;
+    case ParseErrorCode::DocumentTypeNotAllowed:
+      what = "document type declarations (<!DOCTYPE>) are not supported";
+      break;
   }
   return detail.empty() ? std::format("line {}, column {}: {}", location.line, location.column, what)
                         : std::format("line {}, column {}: {}: {}", location.line, location.column, what, detail);
 }
 
 auto Parse(std::string_view text) -> std::expected<Element, ParseError> {
-  return Parser{text}.ParseDocument();
+  if (text.starts_with(kByteOrderMark)) {
+    text.remove_prefix(kByteOrderMark.size());
+  }
+  // pugixml parses in place, so it gets a copy. Offsets into the copy are offsets into the text.
+  std::string buffer{text};
+  pugi::xml_document document;
+  const pugi::xml_parse_result result = document.load_buffer_inplace(buffer.data(), buffer.size(), kParseOptions, pugi::encoding_utf8);
+  const Converter converter{text, buffer.data()};
+  if (!result) {
+    return std::unexpected{converter.DescribeFailure(result)};
+  }
+  return converter.ConvertDocument(document);
 }
 
 }  // namespace flint::xml

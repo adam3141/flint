@@ -88,6 +88,28 @@ struct CollectionOperations {
   event::ConnectionGroup (*observe)(void* collection, CollectionCallbacks callbacks){nullptr};
 };
 
+/// A collection member, for views that show lists (agate's ItemsControl). It does not own the collection.
+struct CollectionRef {
+  void* collection{nullptr};
+  const CollectionOperations* operations{nullptr};
+  /// The class of the items.
+  const ModelClass* itemClass{nullptr};
+
+  [[nodiscard]] explicit operator bool() const noexcept { return collection != nullptr; }
+
+  [[nodiscard]] auto Size() const -> std::size_t { return collection != nullptr ? operations->size(collection) : 0; }
+
+  /// The item at an index, which must be less than Size().
+  [[nodiscard]] auto At(std::size_t index) const -> ObjectRef { return operations->at(collection, index); }
+
+  /// Subscribes to the collection's changes.
+  [[nodiscard]] auto Observe(CollectionCallbacks callbacks) const -> event::ConnectionGroup {
+    return collection != nullptr ? operations->observe(collection, std::move(callbacks)) : event::ConnectionGroup{};
+  }
+
+  friend auto operator==(const CollectionRef& left, const CollectionRef& right) -> bool = default;
+};
+
 /// One bindable member of a model class.
 struct MemberInfo {
   std::string_view name;
@@ -118,6 +140,9 @@ struct MemberRef {
 
   /// For an Object member, the nested object; otherwise an empty reference.
   [[nodiscard]] auto AsObject() const -> ObjectRef;
+
+  /// For a Collection member, the collection; otherwise an empty reference.
+  [[nodiscard]] auto AsCollection() const -> CollectionRef;
 };
 
 /// The bindable members of a type, found by C++26 reflection (flint ADR-0013). A view model is a plain class: its
@@ -189,6 +214,13 @@ inline auto MemberRef::AsObject() const -> ObjectRef {
     return {};
   }
   return ObjectRef{.object = address, .type = &info->memberClass()};
+}
+
+inline auto MemberRef::AsCollection() const -> CollectionRef {
+  if (info == nullptr || info->kind != MemberKind::Collection) {
+    return {};
+  }
+  return CollectionRef{.collection = address, .operations = info->collection, .itemClass = &info->memberClass()};
 }
 
 namespace detail {

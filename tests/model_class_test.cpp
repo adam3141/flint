@@ -125,6 +125,10 @@ TEST(ModelClassTest, ExposesCollectionsAndTheirChanges) {
 
   person.Items.Emplace("again");
   EXPECT_EQ(operations.size(items.address), 1U);
+  const CollectionRef collection = items.AsCollection();
+  EXPECT_EQ(collection.Size(), 1U);
+  EXPECT_EQ(collection.itemClass, &ModelClassOf<ItemViewModel>());
+  EXPECT_FALSE(ObjectRef::To(person).Find("Name").AsCollection());
   const ObjectRef item = operations.at(items.address, 0);
   EXPECT_EQ(item.type, &ModelClassOf<ItemViewModel>());
   EXPECT_EQ(std::any_cast<std::string>(item.Find("Title").info->observable->get(item.Find("Title").address)), "again");

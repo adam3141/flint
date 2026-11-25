@@ -84,8 +84,10 @@ private:
 };
 
 auto Registry() -> LevelRegistry& {
-  static LevelRegistry registry;
-  return registry;
+  // Never destroyed: the logger's worker thread can still be formatting records while static objects are destroyed at
+  // exit, and formatting reads names from here.
+  static auto* const kRegistry = new LevelRegistry;  // NOLINT(cppcoreguidelines-owning-memory): deliberately never freed
+  return *kRegistry;
 }
 
 // The standard levels are looked up on every record, so answer them without taking the registry lock.

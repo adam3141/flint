@@ -67,8 +67,10 @@ private:
 };
 
 auto Registry() -> CategoryRegistry& {
-  static CategoryRegistry registry;
-  return registry;
+  // Never destroyed: the logger's worker thread can still be formatting records while static objects are destroyed at
+  // exit, and formatting reads names from here.
+  static auto* const kRegistry = new CategoryRegistry;  // NOLINT(cppcoreguidelines-owning-memory): deliberately never freed
+  return *kRegistry;
 }
 
 }  // namespace

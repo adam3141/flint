@@ -15,6 +15,7 @@ Statuses: **Proposed** (awaiting the owner's agreement), **Accepted**, **Superse
 | [0007](0007-network-sink-tcp-json-lines.md) | Network logging as TCP JSON Lines | Accepted | 2026-11-24 |
 | [0008](0008-profiling-with-tracy.md) | Profiling with Tracy behind `FLINT_PROFILE_*` macros | Accepted | 2026-11-24 |
 | [0009](0009-signals-observables-and-commands.md) | Signals, observables and commands live in flint | Accepted | 2026-11-25 |
+| [0010](0010-own-xml-parser.md) | flint has its own small XML parser | Accepted | 2026-11-25 |
 
 ## Template
 

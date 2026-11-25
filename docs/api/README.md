@@ -6,6 +6,7 @@ How to use flint, by module. Every public declaration is also documented in its 
 |---|---|
 | [Logging](logging.md) | `flint/log/*.hpp` |
 | [JSON](json.md) | `flint/json/*.hpp` |
+| [XML](xml.md) | `flint/xml/*.hpp` |
 | [Benchmarking and profiling](bench-and-profile.md) | `flint/bench/*.hpp`, `flint/profile/profile.hpp` |
 | [Platform, networking and text](platform-net-text.md) | `flint/platform/*.hpp`, `flint/net/*.hpp`, `flint/text/*.hpp` |
 | [Reflection utilities](meta.md) | `flint/meta/*.hpp` |

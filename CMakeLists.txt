@@ -48,6 +48,7 @@ target_sources(flint
     src/platform/terminal.cpp
     src/platform/thread.cpp
     src/platform/uptime.cpp
+    src/xml/parser.cpp
 )
 
 target_include_directories(flint

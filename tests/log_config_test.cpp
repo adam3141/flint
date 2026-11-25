@@ -23,8 +23,8 @@ TEST(LogConfigTest, RegistersLevelsAndCategoriesAndAppliesFilters) {
     "sinks": [
       { "type": "json", "path": ")" +
                              jsonPath + R"(", "minLevel": "ConfigTestVerbose",
-        "categories": { "ConfigTestRender": "Off", "ConfigTestLayout": "Trace" } },
-    ],
+        "categories": { "ConfigTestRender": "Off", "ConfigTestLayout": "Trace" } }
+    ]
   })";
 
   Logger logger{{.mode = Mode::Synchronous}};
@@ -60,9 +60,36 @@ TEST(LogConfigTest, ReportsWhereTheConfigurationIsWrong) {
   ASSERT_FALSE(badColour.has_value());
   EXPECT_EQ(badColour.error().where, "/sinks/0/colour");
 
+  const auto badColour2 = ConfigureFromText(logger, R"({"levels": [ {"name": "ConfigTestOdd", "severity": 160, "colour": "plaid"} ]})");
+  ASSERT_FALSE(badColour2.has_value());
+  EXPECT_EQ(badColour2.error().where, "/levels/0/colour");
+
   const auto malformed = ConfigureFromText(logger, R"({"sinks": [)");
   ASSERT_FALSE(malformed.has_value());
   EXPECT_EQ(malformed.error().code, ConfigError::Code::MalformedJson);
+}
+
+TEST(LogConfigTest, ReportsLineAndColumnForMisspeltKeysAndWrongTypes) {
+  Logger logger{{.mode = Mode::Synchronous}};
+  const auto misspelt = ConfigureFromText(logger, "{\n  // a comment\n  \"sinkz\": []\n}");
+  ASSERT_FALSE(misspelt.has_value());
+  EXPECT_EQ(misspelt.error().code, ConfigError::Code::MalformedJson);
+  EXPECT_EQ(misspelt.error().where, "line 3, column 4");
+  EXPECT_EQ(misspelt.error().Describe(), R"(malformed JSON at line 3, column 4: unknown key in `"sinkz": []`)");
+
+  const auto wrongType = ConfigureFromText(logger, R"({"sinks": [ {"type": "network", "port": "http"} ]})");
+  ASSERT_FALSE(wrongType.has_value());
+  EXPECT_EQ(wrongType.error().code, ConfigError::Code::MalformedJson);
+  EXPECT_TRUE(wrongType.error().where.starts_with("line 1, column ")) << wrongType.error().where;
+}
+
+TEST(LogConfigTest, AppliesAConfigurationBuiltInCode) {
+  Logger logger{{.mode = Mode::Synchronous}};
+  LoggingConfig config;
+  config.sinks.push_back(SinkConfig{.type = "console", .minLevel = LevelSetting{"Warning"}});
+  ASSERT_TRUE(Configure(logger, config).has_value());
+  EXPECT_FALSE(logger.IsEnabled(kInfo, kDefaultCategory));
+  EXPECT_TRUE(logger.IsEnabled(kWarning, kDefaultCategory));
 }
 
 TEST(LogConfigTest, LeavesTheLoggerUnchangedOnFailure) {

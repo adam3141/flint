@@ -1,5 +1,6 @@
 #include "flint/log/config.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -18,8 +19,8 @@
 #include <variant>
 #include <vector>
 
-#include "flint/json/parser.hpp"
-#include "flint/json/value.hpp"
+#include <glaze/glaze.hpp>
+
 #include "flint/log/category.hpp"
 #include "flint/log/console_sink.hpp"
 #include "flint/log/file_sink.hpp"
@@ -41,121 +42,77 @@ namespace {
 
 using Code = ConfigError::Code;
 
+// Configuration files may have comments; a misspelt key is an error rather than silently ignored.
+constexpr glz::opts kReadOptions{.null_terminated = false, .comments = true, .error_on_unknown_keys = true};
+
 auto Fail(Code code, std::string where, std::string detail = {}) -> std::unexpected<ConfigError> {
   return std::unexpected(ConfigError{.code = code, .where = std::move(where), .detail = std::move(detail)});
 }
 
-auto WrongType(const std::string& where, std::string_view expected, const json::Value& actual) -> std::unexpected<ConfigError> {
-  return Fail(Code::WrongType, where, std::format("expected {}, found {}", expected, json::KindName(actual.GetKind())));
+// Turns a glaze read error into a line and column, with glaze's reason and the offending line.
+auto DescribeReadError(const glz::error_ctx& error, std::string_view text) -> ConfigError {
+  const std::size_t offset = std::min(error.count, text.size());
+  const std::size_t previousNewline = offset == 0 ? std::string_view::npos : text.rfind('\n', offset - 1);
+  const std::size_t lineStart = previousNewline == std::string_view::npos ? 0 : previousNewline + 1;
+  const std::size_t lineEnd = std::min(text.find('\n', offset), text.size());
+  const auto line = std::ranges::count(text.substr(0, offset), '\n') + 1;
+  std::string reason = glz::format_error(error.ec);
+  std::ranges::replace(reason, '_', ' ');
+  std::string_view context = text.substr(lineStart, lineEnd - lineStart);
+  while (!context.empty() && (context.front() == ' ' || context.front() == '\t')) {
+    context.remove_prefix(1);
+  }
+  return ConfigError{
+      .code = Code::MalformedJson,
+      .where = std::format("line {}, column {}", line, offset - lineStart + 1),
+      .detail = context.empty() ? reason : std::format("{} in `{}`", reason, context),
+  };
 }
 
-// Typed accessors for optional members. Each returns nothing when the member is absent, and an error when it is
-// present with the wrong type.
-class Reader {
-public:
-  Reader(const json::Object& object, std::string where) : m_object{&object}, m_where{std::move(where)} {}
-
-  [[nodiscard]] auto Where(std::string_view key) const -> std::string { return std::format("{}/{}", m_where, key); }
-
-  [[nodiscard]] auto String(std::string_view key) const -> std::expected<std::optional<std::string>, ConfigError> {
-    const json::Value* value = m_object->Find(key);
-    if (value == nullptr) {
-      return std::optional<std::string>{};
-    }
-    const auto text = value->AsString();
-    if (!text.has_value()) {
-      return WrongType(Where(key), "a string", *value);
-    }
-    return std::optional<std::string>{std::string{*text}};
+template <meta::Enumeration Enum>
+auto ParseEnumeration(const std::optional<std::string>& text, const std::string& where) -> std::expected<std::optional<Enum>, ConfigError> {
+  if (!text.has_value()) {
+    return std::optional<Enum>{};
   }
-
-  [[nodiscard]] auto Unsigned(std::string_view key, std::uint64_t maximum) const
-      -> std::expected<std::optional<std::uint64_t>, ConfigError> {
-    const json::Value* value = m_object->Find(key);
-    if (value == nullptr) {
-      return std::optional<std::uint64_t>{};
+  const auto parsed = meta::EnumFromNameIgnoreCase<Enum>(*text);
+  if (!parsed.has_value()) {
+    std::string names;
+    for (const Enum value : meta::EnumValues<Enum>()) {
+      names += names.empty() ? "" : ", ";
+      names += meta::EnumName(value);
     }
-    const auto integer = value->AsInteger();
-    if (!integer.has_value()) {
-      return WrongType(Where(key), "an integer", *value);
-    }
-    if (std::cmp_less(*integer, 0) || std::cmp_greater(*integer, maximum)) {
-      return Fail(Code::InvalidValue, Where(key), std::format("must be between 0 and {}", maximum));
-    }
-    return std::optional<std::uint64_t>{static_cast<std::uint64_t>(*integer)};
+    return Fail(Code::InvalidValue, where, std::format("'{}' is not one of {}", *text, names));
   }
-
-  template <meta::Enumeration Enum>
-  [[nodiscard]] auto Enumeration(std::string_view key) const -> std::expected<std::optional<Enum>, ConfigError> {
-    auto text = String(key);
-    if (!text.has_value()) {
-      return std::unexpected(text.error());
-    }
-    if (!text->has_value()) {
-      return std::optional<Enum>{};
-    }
-    const auto parsed = meta::EnumFromNameIgnoreCase<Enum>(**text);
-    if (!parsed.has_value()) {
-      return Fail(Code::InvalidValue, Where(key), std::format("unknown value '{}'", **text));
-    }
-    return parsed;
-  }
-
-  [[nodiscard]] auto Find(std::string_view key) const -> const json::Value* { return m_object->Find(key); }
-
-private:
-  const json::Object* m_object;
-  std::string m_where;
-};
-
-auto ParseLevel(const json::Value& value, const std::string& where) -> std::expected<Level, ConfigError> {
-  if (const auto name = value.AsString(); name.has_value()) {
-    const auto level = FindLevel(*name);
-    if (!level.has_value()) {
-      return Fail(Code::UnknownLevel, where, std::format("no level named '{}'", *name));
-    }
-    return *level;
-  }
-  if (const auto severity = value.AsInteger(); severity.has_value()) {
-    if (!std::in_range<std::uint16_t>(*severity)) {
-      return Fail(Code::InvalidValue, where, "severity must be between 0 and 65535");
-    }
-    return Level{.severity = static_cast<std::uint16_t>(*severity)};
-  }
-  return WrongType(where, "a level name or severity", value);
+  return parsed;
 }
 
-auto RegisterLevels(const json::Value& levels) -> std::expected<void, ConfigError> {
-  const json::Array* array = levels.AsArray();
-  if (array == nullptr) {
-    return WrongType("/levels", "an array", levels);
+auto ParseLevel(const LevelSetting& setting, const std::string& where) -> std::expected<Level, ConfigError> {
+  if (const auto* severity = std::get_if<std::uint16_t>(&setting); severity != nullptr) {
+    return Level{.severity = *severity};
   }
-  for (std::size_t index = 0; index < array->size(); ++index) {
+  const auto& name = std::get<std::string>(setting);
+  const auto level = FindLevel(name);
+  if (!level.has_value()) {
+    return Fail(Code::UnknownLevel, where, std::format("no level named '{}'", name));
+  }
+  return *level;
+}
+
+auto RegisterLevels(const std::vector<LevelDefinition>& levels) -> std::expected<void, ConfigError> {
+  for (std::size_t index = 0; index < levels.size(); ++index) {
+    const LevelDefinition& definition = levels[index];
     const std::string where = std::format("/levels/{}", index);
-    const json::Object* object = (*array)[index].AsObject();
-    if (object == nullptr) {
-      return WrongType(where, "an object", (*array)[index]);
+    if (definition.name.empty()) {
+      return Fail(Code::MissingField, where + "/name");
     }
-    const Reader reader{*object, where};
-    auto name = reader.String("name");
-    if (!name.has_value()) {
-      return std::unexpected(name.error());
+    if (!definition.severity.has_value()) {
+      return Fail(Code::MissingField, where + "/severity");
     }
-    if (!name->has_value()) {
-      return Fail(Code::MissingField, reader.Where("name"));
-    }
-    auto severity = reader.Unsigned("severity", std::numeric_limits<std::uint16_t>::max());
-    if (!severity.has_value()) {
-      return std::unexpected(severity.error());
-    }
-    if (!severity->has_value()) {
-      return Fail(Code::MissingField, reader.Where("severity"));
-    }
-    auto colour = reader.Enumeration<Colour>("colour");
+    auto colour = ParseEnumeration<Colour>(definition.colour, where + "/colour");
     if (!colour.has_value()) {
       return std::unexpected(colour.error());
     }
-    const auto registered = RegisterLevel(**name, static_cast<std::uint16_t>(**severity), colour->value_or(Colour::Default));
+    const auto registered = RegisterLevel(definition.name, *definition.severity, colour->value_or(Colour::Default));
     if (!registered.has_value()) {
       return Fail(Code::InvalidLevel, where, std::string{Describe(registered.error())});
     }
@@ -163,187 +120,135 @@ auto RegisterLevels(const json::Value& levels) -> std::expected<void, ConfigErro
   return {};
 }
 
-auto RegisterCategories(const json::Value& categories) -> std::expected<void, ConfigError> {
-  const json::Array* array = categories.AsArray();
-  if (array == nullptr) {
-    return WrongType("/categories", "an array", categories);
-  }
-  for (std::size_t index = 0; index < array->size(); ++index) {
-    const std::string where = std::format("/categories/{}", index);
-    const auto name = (*array)[index].AsString();
-    if (!name.has_value()) {
-      return WrongType(where, "a string", (*array)[index]);
-    }
-    if (auto registered = RegisterCategory(*name); !registered.has_value()) {
-      return Fail(Code::InvalidCategory, where, std::string{Describe(registered.error())});
+auto RegisterCategories(const std::vector<std::string>& categories) -> std::expected<void, ConfigError> {
+  for (std::size_t index = 0; index < categories.size(); ++index) {
+    if (auto registered = RegisterCategory(categories[index]); !registered.has_value()) {
+      return Fail(Code::InvalidCategory, std::format("/categories/{}", index), std::string{Describe(registered.error())});
     }
   }
   return {};
 }
 
-auto ParseFilter(const Reader& reader) -> std::expected<Filter, ConfigError> {
+auto ParseFilter(const SinkConfig& config, const std::string& where) -> std::expected<Filter, ConfigError> {
   Filter filter{kTrace};
-  if (const json::Value* minimum = reader.Find("minLevel"); minimum != nullptr) {
-    auto level = ParseLevel(*minimum, reader.Where("minLevel"));
+  if (config.minLevel.has_value()) {
+    auto level = ParseLevel(*config.minLevel, where + "/minLevel");
     if (!level.has_value()) {
       return std::unexpected(level.error());
     }
     filter.SetMinimum(*level);
   }
-  if (const json::Value* categories = reader.Find("categories"); categories != nullptr) {
-    const json::Object* object = categories->AsObject();
-    if (object == nullptr) {
-      return WrongType(reader.Where("categories"), "an object of category: level", *categories);
+  for (const auto& [name, setting] : config.categories) {
+    const std::string categoryWhere = std::format("{}/categories/{}", where, name);
+    auto category = RegisterCategory(name);
+    if (!category.has_value()) {
+      return Fail(Code::InvalidCategory, categoryWhere, std::string{Describe(category.error())});
     }
-    for (const json::Member& member : object->Members()) {
-      const std::string where = std::format("{}/{}", reader.Where("categories"), member.key);
-      auto category = RegisterCategory(member.key);
-      if (!category.has_value()) {
-        return Fail(Code::InvalidCategory, where, std::string{Describe(category.error())});
-      }
-      auto level = ParseLevel(member.value, where);
-      if (!level.has_value()) {
-        return std::unexpected(level.error());
-      }
-      filter.SetCategoryMinimum(*category, *level);
+    auto level = ParseLevel(setting, categoryWhere);
+    if (!level.has_value()) {
+      return std::unexpected(level.error());
     }
+    filter.SetCategoryMinimum(*category, *level);
   }
   return filter;
 }
 
-auto ParseRotation(const Reader& reader) -> std::expected<RotationOptions, ConfigError> {
+auto ParseRotation(const SinkConfig& config, const std::string& where) -> std::expected<RotationOptions, ConfigError> {
   RotationOptions rotation;
-  auto maxBytes = reader.Unsigned("maxBytes", std::numeric_limits<std::int64_t>::max());
-  if (!maxBytes.has_value()) {
-    return std::unexpected(maxBytes.error());
+  if (config.maxBytes.has_value() && *config.maxBytes > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+    return Fail(Code::InvalidValue, where + "/maxBytes", "too large");
   }
-  auto maxFiles = reader.Unsigned("maxFiles", std::numeric_limits<std::uint16_t>::max());
-  if (!maxFiles.has_value()) {
-    return std::unexpected(maxFiles.error());
-  }
-  rotation.maxBytes = maxBytes->value_or(rotation.maxBytes);
-  rotation.maxFiles = static_cast<std::size_t>(maxFiles->value_or(rotation.maxFiles));
+  rotation.maxBytes = config.maxBytes.value_or(rotation.maxBytes);
+  rotation.maxFiles = config.maxFiles.has_value() ? std::size_t{*config.maxFiles} : rotation.maxFiles;
   return rotation;
 }
 
-auto MakeConsoleSink(const Reader& reader) -> std::expected<std::unique_ptr<SinkInterface>, ConfigError> {
+auto MakeConsoleSink(const SinkConfig& config, const std::string& where) -> std::expected<std::unique_ptr<SinkInterface>, ConfigError> {
   ConsoleSinkOptions options;
-  auto stream = reader.String("stream");
-  auto colour = reader.Enumeration<ColourMode>("colour");
-  auto pattern = reader.String("pattern");
-  auto timeZone = reader.Enumeration<TimeZone>("timeZone");
-  if (!stream.has_value()) {
-    return std::unexpected(stream.error());
-  }
+  auto colour = ParseEnumeration<ColourMode>(config.colour, where + "/colour");
   if (!colour.has_value()) {
     return std::unexpected(colour.error());
   }
-  if (!pattern.has_value()) {
-    return std::unexpected(pattern.error());
-  }
+  auto timeZone = ParseEnumeration<TimeZone>(config.timeZone, where + "/timeZone");
   if (!timeZone.has_value()) {
     return std::unexpected(timeZone.error());
   }
-  if (stream->has_value()) {
-    if (text::EqualsIgnoreCase(**stream, "stdout")) {
+  if (config.stream.has_value()) {
+    if (text::EqualsIgnoreCase(*config.stream, "stdout")) {
       options.stream = platform::StandardStream::Output;
-    } else if (text::EqualsIgnoreCase(**stream, "stderr")) {
+    } else if (text::EqualsIgnoreCase(*config.stream, "stderr")) {
       options.stream = platform::StandardStream::Error;
     } else {
-      return Fail(Code::InvalidValue, reader.Where("stream"), R"(expected "stdout" or "stderr")");
+      return Fail(Code::InvalidValue, where + "/stream", R"(expected "stdout" or "stderr")");
     }
   }
   options.colour = colour->value_or(options.colour);
-  options.pattern = pattern->value_or(options.pattern);
+  options.pattern = config.pattern.value_or(options.pattern);
   options.timeZone = timeZone->value_or(options.timeZone);
   auto sink = ConsoleSink::Create(options);
   if (!sink.has_value()) {
-    return Fail(Code::InvalidPattern, reader.Where("pattern"), sink.error().Describe());
+    return Fail(Code::InvalidPattern, where + "/pattern", sink.error().Describe());
   }
   return std::unique_ptr<SinkInterface>{std::move(*sink)};
 }
 
-auto MakeFileSink(const Reader& reader) -> std::expected<std::unique_ptr<SinkInterface>, ConfigError> {
-  FileSinkOptions options;
-  auto path = reader.String("path");
-  auto pattern = reader.String("pattern");
-  auto timeZone = reader.Enumeration<TimeZone>("timeZone");
-  auto rotation = ParseRotation(reader);
-  if (!path.has_value()) {
-    return std::unexpected(path.error());
+auto MakeFileSink(const SinkConfig& config, const std::string& where) -> std::expected<std::unique_ptr<SinkInterface>, ConfigError> {
+  if (!config.path.has_value()) {
+    return Fail(Code::MissingField, where + "/path");
   }
-  if (!pattern.has_value()) {
-    return std::unexpected(pattern.error());
-  }
+  auto timeZone = ParseEnumeration<TimeZone>(config.timeZone, where + "/timeZone");
   if (!timeZone.has_value()) {
     return std::unexpected(timeZone.error());
   }
+  auto rotation = ParseRotation(config, where);
   if (!rotation.has_value()) {
     return std::unexpected(rotation.error());
   }
-  if (!path->has_value()) {
-    return Fail(Code::MissingField, reader.Where("path"));
-  }
-  options.path = **path;
-  options.pattern = pattern->value_or(options.pattern);
+  FileSinkOptions options;
+  options.path = *config.path;
+  options.pattern = config.pattern.value_or(options.pattern);
   options.timeZone = timeZone->value_or(options.timeZone);
   options.rotation = *rotation;
   auto sink = FileSink::Create(options);
   if (!sink.has_value()) {
     if (const auto* patternError = std::get_if<PatternError>(&sink.error()); patternError != nullptr) {
-      return Fail(Code::InvalidPattern, reader.Where("pattern"), patternError->Describe());
+      return Fail(Code::InvalidPattern, where + "/pattern", patternError->Describe());
     }
-    return Fail(Code::CannotOpenSink, reader.Where("path"), std::get<std::error_code>(sink.error()).message());
+    return Fail(Code::CannotOpenSink, where + "/path", std::get<std::error_code>(sink.error()).message());
   }
   return std::unique_ptr<SinkInterface>{std::move(*sink)};
 }
 
-auto MakeJsonFileSink(const Reader& reader) -> std::expected<std::unique_ptr<SinkInterface>, ConfigError> {
-  JsonFileSinkOptions options;
-  auto path = reader.String("path");
-  auto rotation = ParseRotation(reader);
-  if (!path.has_value()) {
-    return std::unexpected(path.error());
+auto MakeJsonFileSink(const SinkConfig& config, const std::string& where) -> std::expected<std::unique_ptr<SinkInterface>, ConfigError> {
+  if (!config.path.has_value()) {
+    return Fail(Code::MissingField, where + "/path");
   }
+  auto rotation = ParseRotation(config, where);
   if (!rotation.has_value()) {
     return std::unexpected(rotation.error());
   }
-  if (!path->has_value()) {
-    return Fail(Code::MissingField, reader.Where("path"));
-  }
-  options.path = **path;
+  JsonFileSinkOptions options;
+  options.path = *config.path;
   options.rotation = *rotation;
   auto sink = JsonFileSink::Create(options);
   if (!sink.has_value()) {
-    return Fail(Code::CannotOpenSink, reader.Where("path"), sink.error().message());
+    return Fail(Code::CannotOpenSink, where + "/path", sink.error().message());
   }
   return std::unique_ptr<SinkInterface>{std::move(*sink)};
 }
 
-auto MakeNetworkSink(const Reader& reader) -> std::expected<std::unique_ptr<SinkInterface>, ConfigError> {
+auto MakeNetworkSink(const SinkConfig& config) -> std::unique_ptr<SinkInterface> {
   NetworkSinkOptions options;
-  auto host = reader.String("host");
-  auto port = reader.Unsigned("port", std::numeric_limits<std::uint16_t>::max());
-  auto capacity = reader.Unsigned("bufferCapacity", std::numeric_limits<std::uint32_t>::max());
-  auto reconnect = reader.Unsigned("reconnectDelayMs", std::numeric_limits<std::uint32_t>::max());
-  auto maxReconnect = reader.Unsigned("maxReconnectDelayMs", std::numeric_limits<std::uint32_t>::max());
-  auto timeout = reader.Unsigned("connectTimeoutMs", std::numeric_limits<std::uint32_t>::max());
-  for (const auto* result : {&port, &capacity, &reconnect, &maxReconnect, &timeout}) {
-    if (!result->has_value()) {
-      return std::unexpected(result->error());
-    }
-  }
-  if (!host.has_value()) {
-    return std::unexpected(host.error());
-  }
-  options.host = host->value_or(options.host);
-  options.port = static_cast<std::uint16_t>(port->value_or(options.port));
-  options.bufferCapacity = static_cast<std::size_t>(capacity->value_or(options.bufferCapacity));
-  options.reconnectDelay = std::chrono::milliseconds{reconnect->value_or(static_cast<std::uint64_t>(options.reconnectDelay.count()))};
-  options.maxReconnectDelay =
-      std::chrono::milliseconds{maxReconnect->value_or(static_cast<std::uint64_t>(options.maxReconnectDelay.count()))};
-  options.connectTimeout = std::chrono::milliseconds{timeout->value_or(static_cast<std::uint64_t>(options.connectTimeout.count()))};
-  return std::unique_ptr<SinkInterface>{std::make_unique<NetworkSink>(std::move(options))};
+  const auto milliseconds = [](std::optional<std::uint32_t> value, std::chrono::milliseconds fallback) {
+    return value.has_value() ? std::chrono::milliseconds{*value} : fallback;
+  };
+  options.host = config.host.value_or(options.host);
+  options.port = config.port.value_or(options.port);
+  options.bufferCapacity = config.bufferCapacity.has_value() ? std::size_t{*config.bufferCapacity} : options.bufferCapacity;
+  options.reconnectDelay = milliseconds(config.reconnectDelayMs, options.reconnectDelay);
+  options.maxReconnectDelay = milliseconds(config.maxReconnectDelayMs, options.maxReconnectDelay);
+  options.connectTimeout = milliseconds(config.connectTimeoutMs, options.connectTimeout);
+  return std::make_unique<NetworkSink>(std::move(options));
 }
 
 struct ConfiguredSink {
@@ -351,38 +256,28 @@ struct ConfiguredSink {
   Filter filter;
 };
 
-auto MakeSink(const json::Value& value, const std::string& where) -> std::expected<ConfiguredSink, ConfigError> {
-  const json::Object* object = value.AsObject();
-  if (object == nullptr) {
-    return WrongType(where, "an object", value);
+auto MakeSink(const SinkConfig& config, const std::string& where) -> std::expected<ConfiguredSink, ConfigError> {
+  if (config.type.empty()) {
+    return Fail(Code::MissingField, where + "/type");
   }
-  const Reader reader{*object, where};
-  auto type = reader.String("type");
-  if (!type.has_value()) {
-    return std::unexpected(type.error());
-  }
-  if (!type->has_value()) {
-    return Fail(Code::MissingField, reader.Where("type"));
-  }
-  auto filter = ParseFilter(reader);
+  auto filter = ParseFilter(config, where);
   if (!filter.has_value()) {
     return std::unexpected(filter.error());
   }
-
-  const std::string kind = text::ToLowerAscii(**type);
+  const std::string kind = text::ToLowerAscii(config.type);
   std::expected<std::unique_ptr<SinkInterface>, ConfigError> sink;
   if (kind == "console") {
-    sink = MakeConsoleSink(reader);
+    sink = MakeConsoleSink(config, where);
   } else if (kind == "file") {
-    sink = MakeFileSink(reader);
+    sink = MakeFileSink(config, where);
   } else if (kind == "json") {
-    sink = MakeJsonFileSink(reader);
+    sink = MakeJsonFileSink(config, where);
   } else if (kind == "network") {
-    sink = MakeNetworkSink(reader);
+    sink = MakeNetworkSink(config);
   } else if (kind == "tracy") {
     sink = std::unique_ptr<SinkInterface>{std::make_unique<TracySink>()};
   } else {
-    return Fail(Code::UnknownSinkType, reader.Where("type"), std::format("'{}' (expected console, file, json, network or tracy)", **type));
+    return Fail(Code::UnknownSinkType, where + "/type", std::format("'{}' (expected console, file, json, network or tracy)", config.type));
   }
   if (!sink.has_value()) {
     return std::unexpected(sink.error());
@@ -396,16 +291,12 @@ auto CodeDescription(Code code) -> std::string_view {
       return "cannot read configuration file";
     case Code::MalformedJson:
       return "malformed JSON";
-    case Code::WrongType:
-      return "wrong type";
     case Code::MissingField:
       return "missing required field";
     case Code::UnknownSinkType:
       return "unknown sink type";
     case Code::UnknownLevel:
       return "unknown level";
-    case Code::UnknownColour:
-      return "unknown colour";
     case Code::InvalidValue:
       return "invalid value";
     case Code::InvalidLevel:
@@ -433,37 +324,22 @@ auto ConfigError::Describe() const -> std::string {
   return text;
 }
 
-auto Configure(Logger& logger, const json::Value& config) -> std::expected<void, ConfigError> {
-  if (!config.IsObject()) {
-    return WrongType("", "an object", config);
+auto Configure(Logger& logger, const LoggingConfig& config) -> std::expected<void, ConfigError> {
+  if (auto registered = RegisterLevels(config.levels); !registered.has_value()) {
+    return registered;
   }
-  if (const json::Value* levels = config.Find("levels"); levels != nullptr) {
-    if (auto registered = RegisterLevels(*levels); !registered.has_value()) {
-      return registered;
-    }
+  if (auto registered = RegisterCategories(config.categories); !registered.has_value()) {
+    return registered;
   }
-  if (const json::Value* categories = config.Find("categories"); categories != nullptr) {
-    if (auto registered = RegisterCategories(*categories); !registered.has_value()) {
-      return registered;
-    }
-  }
-
   // Build every sink before touching the logger, so a bad entry leaves the current configuration in place.
   std::vector<ConfiguredSink> sinks;
-  if (const json::Value* sinkList = config.Find("sinks"); sinkList != nullptr) {
-    const json::Array* array = sinkList->AsArray();
-    if (array == nullptr) {
-      return WrongType("/sinks", "an array", *sinkList);
+  for (std::size_t index = 0; index < config.sinks.size(); ++index) {
+    auto sink = MakeSink(config.sinks[index], std::format("/sinks/{}", index));
+    if (!sink.has_value()) {
+      return std::unexpected(sink.error());
     }
-    for (std::size_t index = 0; index < array->size(); ++index) {
-      auto sink = MakeSink((*array)[index], std::format("/sinks/{}", index));
-      if (!sink.has_value()) {
-        return std::unexpected(sink.error());
-      }
-      sinks.push_back(std::move(*sink));
-    }
+    sinks.push_back(std::move(*sink));
   }
-
   logger.RemoveAllSinks();
   for (ConfiguredSink& configured : sinks) {
     logger.AddSink(std::move(configured.sink), std::move(configured.filter));
@@ -472,11 +348,11 @@ auto Configure(Logger& logger, const json::Value& config) -> std::expected<void,
 }
 
 auto ConfigureFromText(Logger& logger, std::string_view text) -> std::expected<void, ConfigError> {
-  auto parsed = json::Parse(text, json::kConfigParseOptions);
-  if (!parsed.has_value()) {
-    return Fail(Code::MalformedJson, "", parsed.error().Describe());
+  LoggingConfig config;
+  if (const glz::error_ctx error = glz::read<kReadOptions>(config, text); error) {
+    return std::unexpected(DescribeReadError(error, text));
   }
-  return Configure(logger, *parsed);
+  return Configure(logger, config);
 }
 
 auto ConfigureFromFile(Logger& logger, const std::filesystem::path& path) -> std::expected<void, ConfigError> {

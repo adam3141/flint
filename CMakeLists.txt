@@ -22,9 +22,6 @@ target_sources(flint
     src/bench/benchmark.cpp
     src/bench/frame_stats.cpp
     src/bench/statistics.cpp
-    src/json/parser.cpp
-    src/json/value.cpp
-    src/json/writer.cpp
     src/log/category.cpp
     src/log/config.cpp
     src/log/console_sink.cpp
@@ -64,7 +61,7 @@ flint_target_options(flint)
 flint_enable_reflection(flint)
 
 find_package(Threads REQUIRED)
-target_link_libraries(flint PUBLIC Threads::Threads)
+target_link_libraries(flint PUBLIC Threads::Threads glaze::glaze)
 # pugixml stays out of flint's headers (ADR-0011).
 target_link_libraries(flint PRIVATE pugixml::pugixml)
 

@@ -3,8 +3,8 @@
 #include <cstdint>
 #include <expected>
 #include <string>
+#include <string_view>
 
-#include "flint/json/value.hpp"
 #include "flint/log/record.hpp"
 
 namespace flint::log {
@@ -36,16 +36,17 @@ struct OwnedRecord {
   }
 };
 
-/// Why a JSON object could not be read as a record.
+/// Why a line could not be read as a record.
 enum class JsonRecordError : std::uint8_t {
-  NotAnObject,
+  /// Not a JSON object, or a field has the wrong type.
+  NotARecord,
   MissingMessage,
   BadField,
 };
 
-/// Rebuilds a record from the object written by AppendJsonRecord. Unknown level names are registered as custom levels
-/// using the record's severity.
-/// @param value A parsed JSON object.
-[[nodiscard]] auto RecordFromJson(const json::Value& value) -> std::expected<OwnedRecord, JsonRecordError>;
+/// Rebuilds a record from a line written by AppendJsonRecord. Unknown fields are ignored, so newer writers can add
+/// fields. Unknown level names are registered as custom levels using the record's severity.
+/// @param line One JSON object.
+[[nodiscard]] auto RecordFromJson(std::string_view line) -> std::expected<OwnedRecord, JsonRecordError>;
 
 }  // namespace flint::log

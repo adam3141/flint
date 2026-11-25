@@ -1,6 +1,6 @@
 # 0005. flint's own JSON library
 
-- Status: Accepted
+- Status: Superseded by [ADR-0012](0012-json-with-glaze.md)
 - Date: 2026-11-24
 
 ## Context

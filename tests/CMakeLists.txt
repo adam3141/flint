@@ -3,7 +3,6 @@ include(GoogleTest)
 add_executable(flint_tests
   bench_test.cpp
   event_signal_test.cpp
-  json_test.cpp
   log_config_test.cpp
   log_filter_test.cpp
   log_formatter_test.cpp

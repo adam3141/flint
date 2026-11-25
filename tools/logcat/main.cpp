@@ -20,7 +20,6 @@
 #include <utility>
 #include <vector>
 
-#include "flint/json/parser.hpp"
 #include "flint/log/console_sink.hpp"
 #include "flint/log/json_record.hpp"
 #include "flint/log/network_sink.hpp"
@@ -80,8 +79,7 @@ auto PrintLine(const std::string& line, bool raw, flint::log::ConsoleSink& conso
     std::println("{}", line);
     return;
   }
-  const auto parsed = flint::json::Parse(line);
-  auto record = parsed.has_value() ? flint::log::RecordFromJson(*parsed) : std::unexpected(flint::log::JsonRecordError::NotAnObject);
+  auto record = flint::log::RecordFromJson(line);
   if (!record.has_value()) {
     std::println("{}", line);
     return;

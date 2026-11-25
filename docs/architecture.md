@@ -17,7 +17,7 @@ flint/
     platform/   OS facts: system uptime, thread id and name, terminal colour support, process id, host name
     text/       ASCII helpers and number parsing/formatting (<charconv> wrappers)
     meta/       C++26 reflection utilities (enum names today; property and struct reflection next)
-    json/       Value, Parse (strict or config mode), Writer and Serialise
+    xml/        Element, Attribute, Location and Parse (pugixml inside)
     net/        TcpClient and TcpListener (POSIX; Windows to do)
     log/        Levels, categories, filters, Logger, sinks, pattern formatting, configuration
     bench/      Stopwatch, statistics, benchmark runner, FrameStats
@@ -31,9 +31,9 @@ flint/
 Dependencies between modules (arrows point at what is used):
 
 ```
-log ──▶ json, net, platform, meta, text
+log ──▶ glaze, net, platform, meta, text
 bench ─▶ (std only)
-json ──▶ text
+xml ───▶ pugixml (private), text
 net ───▶ (OS sockets)
 meta ──▶ text
 profile ▶ Tracy (optional)

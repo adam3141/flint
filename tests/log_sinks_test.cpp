@@ -2,19 +2,22 @@
 #include <array>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <random>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
 #include <vector>
 
+#include <glaze/glaze.hpp>
 #include <gtest/gtest.h>
 
-#include "flint/json/parser.hpp"
 #include "flint/log/file_sink.hpp"
 #include "flint/log/json_file_sink.hpp"
 #include "flint/log/json_record.hpp"
@@ -24,7 +27,33 @@
 #include "flint/log/record.hpp"
 #include "flint/net/tcp_listener.hpp"
 
+// The fields these tests look at, read straight from a JSON line. Outside the anonymous namespace, which glaze's
+// fallback reflection (clang tooling) cannot see into.
+namespace sinks_test {
+
+struct LineFields {  // NOLINT(misc-use-internal-linkage): glaze needs linkage under clang tooling (see above)
+  std::string message;
+  std::string level;
+  int severity{0};
+  std::string function;
+  std::string timestamp;
+  std::optional<std::int64_t> appUptimeNs;
+  std::optional<std::int64_t> systemUptimeNs;
+};
+
+}  // namespace sinks_test
+
 namespace {
+
+using sinks_test::LineFields;
+
+auto ReadFields(std::string_view line) -> std::optional<LineFields> {
+  LineFields fields;
+  if (glz::read<glz::opts{.null_terminated = false, .error_on_unknown_keys = false}>(fields, line)) {
+    return std::nullopt;
+  }
+  return fields;
+}
 
 using namespace flint::log;  // NOLINT(google-build-using-namespace): test brevity
 
@@ -104,15 +133,15 @@ TEST(JsonFileSinkTest, WritesOneParseableObjectPerLine) {
   }
   const auto lines = ReadLines(path);
   ASSERT_EQ(lines.size(), 2U);
-  const auto first = flint::json::Parse(lines[0]);
-  ASSERT_TRUE(first.has_value()) << first.error().Describe();
-  EXPECT_EQ(first->Find("message")->AsString(), "quote \" and newline \n inside");
-  EXPECT_EQ(first->Find("level")->AsString(), "Info");
-  EXPECT_EQ(first->Find("severity")->AsInteger(), 300);
-  EXPECT_TRUE(first->Find("function")->AsString()->contains("WritesOneParseableObjectPerLine"));
-  EXPECT_TRUE(first->Find("timestamp")->AsString()->ends_with("Z"));
-  EXPECT_TRUE(first->Find("appUptimeNs")->AsInteger().has_value());
-  EXPECT_TRUE(first->Find("systemUptimeNs")->AsInteger().has_value());
+  const auto first = ReadFields(lines[0]);
+  ASSERT_TRUE(first.has_value()) << lines[0];
+  EXPECT_EQ(first->message, "quote \" and newline \n inside");
+  EXPECT_EQ(first->level, "Info");
+  EXPECT_EQ(first->severity, 300);
+  EXPECT_TRUE(first->function.contains("WritesOneParseableObjectPerLine"));
+  EXPECT_TRUE(first->timestamp.ends_with('Z'));
+  EXPECT_TRUE(first->appUptimeNs.has_value());
+  EXPECT_TRUE(first->systemUptimeNs.has_value());
 }
 
 TEST(JsonRecordTest, RoundTripsThroughRecordFromJson) {
@@ -125,9 +154,7 @@ TEST(JsonRecordTest, RoundTripsThroughRecordFromJson) {
   std::string text;
   AppendJsonRecord(record, text);
 
-  auto parsed = flint::json::Parse(text);
-  ASSERT_TRUE(parsed.has_value());
-  auto owned = RecordFromJson(*parsed);
+  auto owned = RecordFromJson(text);
   ASSERT_TRUE(owned.has_value());
   const Record& rebuilt = owned->Get();
   EXPECT_EQ(rebuilt.level, kError);
@@ -136,6 +163,14 @@ TEST(JsonRecordTest, RoundTripsThroughRecordFromJson) {
   EXPECT_EQ(rebuilt.source.line, 7U);
   EXPECT_EQ(rebuilt.threadName, "worker");
   EXPECT_EQ(rebuilt.timestamp, record.timestamp);
+}
+
+TEST(JsonRecordTest, RejectsLinesThatAreNotRecords) {
+  EXPECT_EQ(RecordFromJson("not json").error(), JsonRecordError::NotARecord);
+  EXPECT_EQ(RecordFromJson(R"({"severity": 300})").error(), JsonRecordError::MissingMessage);
+  EXPECT_EQ(RecordFromJson(R"({"message": "m", "severity": 0})").error(), JsonRecordError::BadField);
+  // Fields added by newer writers are ignored.
+  EXPECT_TRUE(RecordFromJson(R"({"message": "m", "severity": 300, "newField": [1, 2]})").has_value());
 }
 
 TEST(NetworkSinkTest, StreamsJsonLinesToACollector) {
@@ -162,9 +197,9 @@ TEST(NetworkSinkTest, StreamsJsonLinesToACollector) {
     std::istringstream lines{received};
     std::string line;
     ASSERT_TRUE(std::getline(lines, line));
-    EXPECT_EQ(flint::json::Parse(line)->Find("message")->AsString(), "over the wire");
+    EXPECT_EQ(ReadFields(line).value_or(LineFields{}).message, "over the wire");
     ASSERT_TRUE(std::getline(lines, line));
-    EXPECT_EQ(flint::json::Parse(line)->Find("level")->AsString(), "Warning");
+    EXPECT_EQ(ReadFields(line).value_or(LineFields{}).level, "Warning");
   }
 }
 

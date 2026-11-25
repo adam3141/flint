@@ -9,6 +9,7 @@
 | `SetCurrentThreadName(name)` / `CurrentThreadName()` | The name is kept in full for flint and truncated to 15 characters for the OS |
 | `IsTerminal(stream)` / `SupportsAnsiColour(stream)` | `StandardStream::Output` or `Error`; honours `NO_COLOR` and `FORCE_COLOR` |
 | `CurrentProcessId()`, `HostName()` | |
+| `FileWatcher::Create()` | Watches files for hot reload (ADR-0014): `Watch(path)`, `Unwatch(path)`, and `Poll()`, which returns the changed files and never blocks. inotify on Linux, so saving by rename is seen; `CreatePolling()` compares modification times everywhere |
 
 ## Networking (`flint/net`)
 

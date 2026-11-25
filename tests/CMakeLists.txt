@@ -3,12 +3,14 @@ include(GoogleTest)
 add_executable(flint_tests
   bench_test.cpp
   event_signal_test.cpp
+  file_watcher_test.cpp
   log_config_test.cpp
   log_filter_test.cpp
   log_formatter_test.cpp
   log_logger_test.cpp
   log_sinks_test.cpp
   meta_enum_test.cpp
+  model_class_test.cpp
   model_test.cpp
   platform_test.cpp
   xml_test.cpp

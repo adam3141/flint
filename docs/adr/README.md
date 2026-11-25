@@ -18,6 +18,8 @@ Statuses: **Proposed** (awaiting the owner's agreement), **Accepted**, **Superse
 | [0010](0010-own-xml-parser.md) | flint has its own small XML parser | Superseded by 0011 | 2026-11-25 |
 | [0011](0011-xml-with-pugixml.md) | XML is parsed with pugixml behind flint::xml | Accepted | 2026-11-25 |
 | [0012](0012-json-with-glaze.md) | JSON is read and written with glaze | Accepted | 2026-11-25 |
+| [0013](0013-model-reflection-and-collections.md) | View models are reflected by flint, and lists are ObservableVector | Accepted | 2026-11-25 |
+| [0014](0014-file-watcher.md) | FileWatcher for hot reload | Accepted | 2026-11-25 |
 
 ## Template
 

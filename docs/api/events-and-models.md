@@ -5,6 +5,8 @@
 #include "flint/event/connection.hpp"   // Connection, ConnectionGroup
 #include "flint/model/observable.hpp"   // Observable<T>, IsSameValue
 #include "flint/model/command.hpp"      // Command
+#include "flint/model/observable_vector.hpp"   // ObservableVector<T>
+#include "flint/model/model_class.hpp"   // ModelClassOf<T>, ObjectRef, MemberInfo
 ```
 
 The building blocks for change notification and view models (ADR-0009). agate's routed events and dependency properties are built on `Signal`. View models are plain structs of `Observable` and `Command` members.
@@ -70,3 +72,40 @@ editor.Save.Execute();   // runs only if CanExecute(); returns whether it ran
 ```
 
 agate binds buttons and menu items to commands and disables them while `CanExecute()` is false. It re-asks whenever `CanExecuteChanged` is emitted.
+
+## Lists
+
+`ObservableVector<T>` is a list that says when items come and go, which agate's ItemsControl shows (ADR-0013). Items are created in place and never move, so they can be view models.
+
+```cpp
+struct TaskViewModel {
+  explicit TaskViewModel(std::string title) : Title{std::move(title)} {}
+  flint::model::Observable<std::string> Title;
+  flint::model::Observable<bool> Done;
+};
+
+flint::model::ObservableVector<TaskViewModel> tasks;
+tasks.Emplace("Write the ADR");       // Inserted(0)
+tasks.EmplaceAt(0, "Ask the owner");  // Inserted(0)
+tasks.Erase(1);                       // Removing(1), then the item is destroyed
+tasks.Clear();                        // Resetting, then Reset
+for (TaskViewModel& task : tasks) { ... }
+```
+
+## Reflected view models
+
+`ModelClassOf<T>()` describes T's public members, found by C++26 reflection with no registration (ADR-0013). agate's `{Binding Path}` uses it to find `Observable`, `Command` and `ObservableVector` members by name, and to follow nested models (`Address.City`).
+
+```cpp
+PersonViewModel person;
+const flint::model::ObjectRef ref = flint::model::ObjectRef::To(person);
+const flint::model::MemberRef name = ref.Find("Name");
+if (name && name.info->kind == flint::model::MemberKind::Observable) {
+  std::any value = name.info->observable->get(name.address);       // a std::string
+  name.info->observable->set(name.address, std::string{"Grace"});  // false if the type is wrong
+  auto connection = name.info->observable->observe(name.address, [] { /* changed */ });
+}
+const flint::model::ObjectRef address = ref.Find("Address").AsObject();
+```
+
+Other public members that can be copied are read-only Values: views read them once.

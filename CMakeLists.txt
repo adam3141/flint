@@ -41,6 +41,7 @@ target_sources(flint
     src/net/socket_posix.cpp
     src/net/tcp_client.cpp
     src/net/tcp_listener.cpp
+    src/platform/file_watcher.cpp
     src/platform/process.cpp
     src/platform/terminal.cpp
     src/platform/thread.cpp

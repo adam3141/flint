@@ -23,11 +23,15 @@ Status: `[ ]` to do, `[~]` in progress, `[x]` done. Newest work at the top of ea
 Owner decision (2026-11-25): use established libraries instead of flint's own JSON and XML parsers.
 
 - [x] **Replace `flint::json` with glaze** (ADR-0012; owner chose to use glaze directly). glaze v9.1.0 builds cleanly with GCC 16 and `-freflection`. The logging configuration is the glaze-read struct `LoggingConfig` (line and column for read errors, JSON Pointers for meaning). JSON Lines records go through a reflected struct: writing is 2.5 times faster. `flint::json` is removed.
+- [x] **View-model reflection and lists** (ADR-0013): `ModelClassOf<T>`, `ObjectRef`, `ObservableVector<T>` for agate's binding and ItemsControl.
+- [x] **FileWatcher** (ADR-0014): inotify on Linux, polling elsewhere, for agate's hot reload.
 - [x] **Replace the hand-written XML parser with pugixml** (ADR-0011). `flint::xml` keeps its types; pugixml v1.16 parses in place and flint maps offsets to lines and columns, decodes entities strictly and still rejects DTDs and deep nesting. 10 XML tests.
 
 ## Next
 
-- [ ] Struct reflection in `flint::meta` (`ForEachMember`, member names and types), needed by agate view models
+- [ ] Generic struct reflection in `flint::meta` (`ForEachMember`), if something beyond view models needs it (ModelClass covers binding)
+- [ ] FileWatcher on Windows (`ReadDirectoryChangesW`) and macOS (FSEvents)
+- [ ] Follow pointers to view models and `Observable<T*>` in ModelClass
 - [ ] ~~Reflection-based JSON (de)serialisation~~: covered by glaze (milestone 4 task above)
 - [ ] Parameterised commands (`Command<T>` with a CommandParameter), when agate controls need them
 - [ ] Cache local-time conversion in `PatternFormatter` (it dominates the 0.9 µs format cost)

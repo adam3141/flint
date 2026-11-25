@@ -19,6 +19,7 @@ enum class ParseErrorCode : std::uint8_t {
   NoRootElement,
   TrailingContent,
   NestingTooDeep,
+  DocumentTypeNotAllowed,
 };
 
 /// A parse failure and where it happened.
@@ -32,11 +33,12 @@ struct ParseError {
   [[nodiscard]] auto Describe() const -> std::string;
 };
 
-/// Parses an XML document into its root element (flint ADR-0010).
+/// Parses an XML document into its root element, using pugixml (flint ADR-0011).
 ///
 /// Supports elements, attributes (single or double quotes), text, CDATA sections, comments, processing instructions,
-/// the XML declaration and the predefined and numeric character entities. DTDs and external entities are not
-/// supported: a `<!DOCTYPE` is an error, which also rules out entity-expansion attacks.
+/// the XML declaration and the predefined and numeric character entities. Stricter than pugixml alone: unknown
+/// entities, '<' in attribute values, duplicate attributes and text outside the root element are errors. DTDs are not
+/// supported: a `<!DOCTYPE` is an error, which also rules out entity-expansion attacks. Elements nest at most 256 deep.
 ///
 /// @param text The UTF-8 document.
 /// @return The root element, or where and why parsing failed.

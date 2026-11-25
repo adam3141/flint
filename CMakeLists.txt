@@ -65,6 +65,8 @@ flint_enable_reflection(flint)
 
 find_package(Threads REQUIRED)
 target_link_libraries(flint PUBLIC Threads::Threads)
+# pugixml stays out of flint's headers (ADR-0011).
+target_link_libraries(flint PRIVATE pugixml::pugixml)
 
 if(FLINT_ENABLE_TRACY)
   target_link_libraries(flint PUBLIC Tracy::TracyClient)

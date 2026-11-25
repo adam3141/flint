@@ -1,6 +1,6 @@
 # 0010. flint has its own small XML parser
 
-- Status: Accepted
+- Status: Superseded by [ADR-0011](0011-xml-with-pugixml.md)
 - Date: 2026-11-25
 
 ## Context
